@@ -1,0 +1,6 @@
+cat > requirements-dev.txt << EOL
+black==24.1.1
+autopep8==2.0.4
+pylint==3.0.3
+pytest==7.4.3
+EOL

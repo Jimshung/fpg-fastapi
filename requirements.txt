@@ -1,7 +1,19 @@
+# 確保在虛擬環境中
+source fpg_venv/bin/activate  # 如果還沒啟動的話
+
+# 生成 requirements.txt
+pip freeze > requirements.txt
+
+# 或者手動創建更精簡的版本
+cat > requirements.txt << EOL
 fastapi==0.104.1
 uvicorn==0.24.0
 selenium==4.15.2
 python-dotenv==1.0.0
 pydantic==2.4.2
+pydantic-settings==2.0.3
 loguru==0.7.2
 python-multipart==0.0.6
+aiohttp==3.9.1
+Pillow==10.1.0
+EOL

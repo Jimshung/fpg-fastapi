@@ -1,11 +1,10 @@
-# app/core/.gitignore
+cat > .gitignore << EOL
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
 build/
 develop-eggs/
 dist/
@@ -22,8 +21,9 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environment
+# 虛擬環境
 venv/
+fpg_venv/
 ENV/
 env/
 .env
@@ -35,41 +35,14 @@ env/
 *.swo
 *~
 
-# Logs
+# 日誌和臨時文件
 *.log
 logs/
-log/
+*.tmp
+temp/
+screenshots/
 
-# Local development settings
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Operating System
+# 作業系統
 .DS_Store
 Thumbs.db
-
-# Project specific
-screenshots/
-*.png
-*.jpg
-temp/
-chromedriver
-chromedriver.exe
-
-# Dependency directories
-node_modules/
-jspm_packages/
-
-# Distribution directories
-dist/
-build/
-
-# Misc
-*.bak
-*.tmp
-*.temp
-.coverage
-htmlcov/
-.pytest_cache/.env
+EOL
