@@ -95,8 +95,25 @@ class ResultProcessor:
             await self.click_back_to_main_button(driver, mode='search')
 
     async def find_checkboxes(self, driver):
-        """找尋頁面上的複選框"""
-        return driver.find_elements(By.CSS_SELECTOR, self.checkbox_selector)
+        """找尋頁面上的複選框（先確保 DOM 加載完成）"""
+        try:
+            original_implicit_wait = driver.timeouts.implicit_wait
+            driver.implicitly_wait(0)
+            
+            try:
+                WebDriverWait(driver, 2).until(
+                    lambda d: d.execute_script('return document.readyState') == 'complete'
+                )
+                checkboxes = driver.find_elements(By.CSS_SELECTOR, self.checkbox_selector)
+                self.logger.info(f"找到 {len(checkboxes)} 個複選框")
+                return checkboxes
+                
+            finally:
+                driver.implicitly_wait(original_implicit_wait)
+                
+        except Exception as e:
+            self.logger.warning(f"查找複選框時發生錯誤: {str(e)}")
+            return []
 
     async def select_all_checkboxes(self, driver, checkboxes):
         """選取所有未勾選的複選框"""
