@@ -168,13 +168,14 @@ class LoginService:
             self.logger.info("開始處理驗證碼...")
             captcha_img = driver.find_element(By.ID, "vcode")
             captcha_buffer = await self._get_captcha_image_buffer(captcha_img)
+
+            if not captcha_buffer:
+                return {"success": False, "message": "驗證碼圖片擷取失敗"}
+
             captcha_text = await self.captcha_service.solve_captcha(captcha_buffer)
 
             if not captcha_text or captcha_text == "error" or len(captcha_text) != 4:
-                return {
-                    "success": False,
-                    "message": f"驗證碼解析結果無效: {captcha_text}"
-                }
+                return {"success": False, "message": f"驗證碼解析結果無效: {captcha_text}"}
 
             self.logger.info(f"填入驗證碼: {captcha_text}")
             captcha_input = driver.find_element(By.NAME, "vcode")
@@ -188,27 +189,24 @@ class LoginService:
             return {"success": False, "message": str(e)}
 
     async def submit_form(self, driver) -> bool:
-        """提交登入表單"""
+        """提交登入表單並等待結果"""
         try:
-            submit_button = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, 
-                    'input[type="submit"], input[type="button"][value="登入"]'))
+            submit_button = driver.find_element(
+                By.CSS_SELECTOR, 
+                'input[type="submit"][value="登入"]'
             )
             submit_button.click()
 
-            # 等待一下以確保表單提交
-            await asyncio.sleep(2)
+            WebDriverWait(driver, 5).until(
+                lambda d: d.execute_script('return document.readyState') == 'complete'
+            )
 
-            # 驗證登入結果
-            try:
-                success = await self.verify_login_success(driver)
-                if success:
-                    self.logger.info("驗證登入成功")
-                    return True
-            except Exception as e:
-                self.logger.error(f"驗證登入狀態時發生錯誤: {str(e)}")
-                return False
+            login_success = await self.verify_login_success(driver)
+            if login_success:
+                self.logger.info("驗證登入成功")
+                return True
 
+            self.logger.warning("登入驗證失敗")
             return False
 
         except Exception as e:
@@ -216,25 +214,15 @@ class LoginService:
             return False
 
     async def verify_login_success(self, driver) -> bool:
-        """
-        驗證登入是否成功。
-
-        Args:
-            driver: Selenium WebDriver 實例。
-
-        Returns:
-            bool: 登入是否成功。
-        """
+        """驗證登入是否成功"""
         try:
-            WebDriverWait(driver, 10).until(
+            menu_element = WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "menu_pos"))
             )
 
-            menu_element = driver.find_element(By.CLASS_NAME, "menu_pos")
             menu_text = menu_element.text
-            success = all(
-                text in menu_text for text in ["熱訊", "標售公報", "標案管理"]
-            )
+            required_items = ["熱訊", "標售公報", "標案管理"]
+            success = all(text in menu_text for text in required_items)
 
             if success:
                 self.logger.info("成功驗證登入狀態")
@@ -242,37 +230,33 @@ class LoginService:
                 self.logger.warning("未能找到預期的選單項目")
 
             return success
+
         except TimeoutException:
             self.logger.warning("等待選單元素超時")
             return False
         except WebDriverException as e:
-            self.logger.error("驗證登入狀態時發生錯誤: %s", str(e))
+            self.logger.error(f"驗證登入狀態時發生錯誤: {str(e)}")
             return False
 
     async def _get_captcha_image_buffer(self, element) -> bytes:
-        """
-        擷取驗證碼圖片。
-
-        Args:
-            element: Selenium WebElement 實例。
-
-        Returns:
-            bytes: 圖片的二進制數據。
-
-        Raises:
-            WebDriverException: 當擷取圖片失敗時拋出。
-        """
+        """擷取驗證碼圖片"""
         try:
             self.logger.info("正在擷取驗證碼圖片...")
-            return element.screenshot_as_png
+            original_implicit_wait = element.parent.timeouts.implicit_wait
+            element.parent.implicitly_wait(1)
+            
+            try:
+                return element.screenshot_as_png
+            finally:
+                element.parent.implicitly_wait(original_implicit_wait)
+                
         except WebDriverException as e:
-            self.logger.error("擷取驗證碼圖片時發生錯誤: %s", str(e))
+            self.logger.error(f"擷取驗證碼圖片時發生錯誤: {str(e)}")
             raise
 
     async def get_total_pages(self, driver) -> int:
         """獲取搜尋結果的總頁數"""
         try:
-            # 首先確認搜尋結果
             search_result = await self.verify_search_result(driver)
             if not search_result['success']:
                 return 0
@@ -290,7 +274,6 @@ class LoginService:
                 self.logger.info(f"找到總頁數: {total_pages}")
                 return total_pages
 
-            # 如果第一種方式失敗，嘗試使用 JavaScript
             page_text = await self.get_page_text_by_js(driver)
             matches = re.search(r'/(\d+)頁', page_text)
             if matches:
