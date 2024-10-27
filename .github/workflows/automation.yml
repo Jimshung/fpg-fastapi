@@ -49,11 +49,18 @@ jobs:
 
       - name: 下載 ChromeDriver
         run: |
-          CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f 3 | cut -d '.' -f 1)
-          wget https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$CHROME_VERSION.0.6261.94/linux64/chromedriver-linux64.zip
+          # 獲取 Chrome 版本並提取主版本號
+          CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f 3)
+          echo "Chrome version: $CHROME_VERSION"
+
+          # 下載對應版本的 ChromeDriver
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/latest/chromedriver-linux64.zip"
           unzip chromedriver-linux64.zip
           sudo mv chromedriver-linux64/chromedriver /usr/bin/chromedriver
           sudo chmod +x /usr/bin/chromedriver
+
+          # 驗證安裝
+          chromedriver --version
 
       - name: 創建必要目錄
         run: |
