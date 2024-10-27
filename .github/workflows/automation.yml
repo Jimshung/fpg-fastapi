@@ -49,17 +49,31 @@ jobs:
 
       - name: 下載 ChromeDriver
         run: |
-          # 獲取 Chrome 版本並提取主版本號
-          CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f 3)
-          echo "Chrome version: $CHROME_VERSION"
+          # 獲取完整的 Chrome 版本號
+          CHROME_VERSION=$(google-chrome --version)
+          echo "完整 Chrome 版本: $CHROME_VERSION"
+
+          # 提取版本號 (130.0.6723.69)
+          VERSION=$(echo $CHROME_VERSION | cut -d ' ' -f 3)
+          echo "提取的版本號: $VERSION"
 
           # 下載對應版本的 ChromeDriver
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/latest/chromedriver-linux64.zip"
-          unzip chromedriver-linux64.zip
-          sudo mv chromedriver-linux64/chromedriver /usr/bin/chromedriver
+          DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$VERSION/linux64/chromedriver-linux64.zip"
+          echo "下載 URL: $DOWNLOAD_URL"
+
+          wget -q "$DOWNLOAD_URL" || {
+            echo "下載失敗，嘗試使用替代 URL..."
+            DOWNLOAD_URL="https://chromedriver.storage.googleapis.com/$VERSION/chromedriver_linux64.zip"
+            echo "替代 URL: $DOWNLOAD_URL"
+            wget -q "$DOWNLOAD_URL"
+          }
+
+          unzip chromedriver*.zip
+          sudo mv chromedriver*/chromedriver /usr/bin/chromedriver
           sudo chmod +x /usr/bin/chromedriver
 
           # 驗證安裝
+          echo "驗證 ChromeDriver 版本:"
           chromedriver --version
 
       - name: 創建必要目錄
