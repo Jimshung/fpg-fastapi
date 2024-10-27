@@ -1,54 +1,57 @@
-cat > README.md << EOL
+# FPG FastAPI Automation
 
-# FPG Automation
+自動化登入和處理 FPG 網站的 FastAPI 應用。
 
-自動化登入和操作 FPG 網站的工具。
+## 安裝步驟
 
-## 安裝
+1. 建立虛擬環境
 
-1. 創建虛擬環境：
-   \`\`\`bash
-   python3 -m venv fpg_venv
-   source fpg_venv/bin/activate # Linux/Mac
-
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
 # 或
+.venv\Scripts\activate  # Windows
+```
 
-.\fpg_venv\Scripts\activate # Windows
-\`\`\`
+2. 安裝依賴
 
-2. 安裝依賴：
-   \`\`\`bash
-   pip install -r requirements.txt
-   \`\`\`
+```bash
+pip install -r requirements.txt
+```
 
-3. 安裝開發工具（可選）：
-   \`\`\`bash
-   pip install -r requirements-dev.txt
-   \`\`\`
+3. 設定環境變數
 
-4. 配置環境變數：
-   \`\`\`bash
-   cp .env.example .env
+```bash
+cp .env.example .env
+# 編輯 .env 文件填入實際值
+```
 
-# 編輯 .env 文件，填入實際的設定值
+4. 運行應用
 
-\`\`\`
-
-## 使用方法
-
-啟動服務：
-\`\`\`bash
+```bash
 uvicorn app.main:app --reload
-\`\`\`
+```
 
-## 開發
+## GitHub Actions 自動化
 
-格式化代碼：
-\`\`\`bash
-black app/
+此專案使用 GitHub Actions 進行自動化運行：
 
-# 或
+- 每個工作日台灣時間早上 8:00 自動執行
+- 可以手動觸發運行
+- 運行結果和截圖會被保存為 artifacts
 
-autopep8 --in-place --recursive app/
-\`\`\`
-EOL
+## 目錄結構
+
+```
+.
+├── app/
+│   ├── api/
+│   ├── core/
+│   ├── models/
+│   ├── services/
+│   └── utils/
+├── .github/workflows/
+├── requirements.txt
+├── .env.example
+└── README.md
+```
