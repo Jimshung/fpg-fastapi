@@ -6,7 +6,7 @@ on:
 
 jobs:
   run-automation:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v3
 
@@ -19,7 +19,10 @@ jobs:
       - name: 安裝 Chrome 和系統依賴
         run: |
           sudo apt-get update
-          sudo apt-get install -y chromium-browser chromium-chromedriver xvfb
+          sudo apt-get install -y snapd
+          sudo snap install chromium
+          sudo ln -s /snap/bin/chromium /usr/bin/chromium-browser
+          sudo ln -s /snap/bin/chromedriver /usr/bin/chromedriver
 
       - name: 安裝 Python 依賴
         run: pip install -r requirements.txt
