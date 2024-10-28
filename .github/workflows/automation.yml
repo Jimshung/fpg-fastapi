@@ -8,94 +8,64 @@ jobs:
   run-automation:
     runs-on: ubuntu-latest
     steps:
-      - name: 檢出程式碼
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: 設置 Python 環境
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+          cache: 'pip' # 添加 pip 快取
 
-      - name: 安裝系統依賴
+      - name: 安裝 Chrome 和系統依賴
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget gnupg
-          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable xvfb
+          sudo apt-get install -y chromium-browser chromium-chromedriver xvfb
 
       - name: 安裝 Python 依賴
-        run: |
-          python -m pip install --upgrade pip
-          # 創建並激活虛擬環境
-          python -m venv .venv
-          source .venv/bin/activate
-          # 安裝依賴
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: 設置環境變數
         run: |
-          echo "APP_NAME=FPG Automation" >> .env
-          echo "DEBUG=True" >> .env
-          echo "CHROME_DRIVER_PATH=/usr/bin/chromedriver" >> .env
-          echo "HEADLESS_MODE=True" >> .env
-          echo "BASE_URL=${{ secrets.BASE_URL }}" >> .env
-          echo "LOGIN_URL=${{ secrets.LOGIN_URL }}" >> .env
-          echo "USERNAME=${{ secrets.FPG_USERNAME }}" >> .env
-          echo "PASSWORD=${{ secrets.FPG_PASSWORD }}" >> .env
-          echo "AZURE_ENDPOINT=${{ secrets.AZURE_ENDPOINT }}" >> .env
-          echo "AZURE_API_KEY=${{ secrets.AZURE_API_KEY }}" >> .env
+          {
+            echo "APP_NAME=FPG Automation"
+            echo "DEBUG=True"
+            echo "CHROME_DRIVER_PATH=/usr/bin/chromedriver"
+            echo "HEADLESS_MODE=True"
+            echo "BASE_URL=${{ secrets.BASE_URL }}"
+            echo "LOGIN_URL=${{ secrets.LOGIN_URL }}"
+            echo "USERNAME=${{ secrets.USERNAME }}"
+            echo "PASSWORD=${{ secrets.PASSWORD }}"
+            echo "AZURE_ENDPOINT=${{ secrets.AZURE_ENDPOINT }}"
+            echo "AZURE_API_KEY=${{ secrets.AZURE_API_KEY }}"
+          } > .env
 
-      - name: 下載 ChromeDriver
+      - name: 創建截圖目錄
+        run: mkdir -p app/utils/screenshots
+
+      - name: 執行搜尋腳本
         run: |
-          # 獲取完整的 Chrome 版本號
-          CHROME_VERSION=$(google-chrome --version)
-          echo "完整 Chrome 版本: $CHROME_VERSION"
+          python -c '
+          import asyncio
+          from app.services.login_service import LoginService
+          from app.models.schema import SearchRequest
+          from datetime import date
 
-          # 提取版本號 (130.0.6723.69)
-          VERSION=$(echo $CHROME_VERSION | cut -d ' ' -f 3)
-          echo "提取的版本號: $VERSION"
+          async def main():
+              service = LoginService()
+              today = date.today()
+              params = SearchRequest(start_date=today, end_date=today)
+              result = await service.search_bulletins(params)
+              print(result)
+              await service.cleanup()
 
-          # 下載對應版本的 ChromeDriver
-          DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$VERSION/linux64/chromedriver-linux64.zip"
-          echo "下載 URL: $DOWNLOAD_URL"
+          asyncio.run(main())
+          '
 
-          wget -q "$DOWNLOAD_URL" || {
-            echo "下載失敗，嘗試使用替代 URL..."
-            DOWNLOAD_URL="https://chromedriver.storage.googleapis.com/$VERSION/chromedriver_linux64.zip"
-            echo "替代 URL: $DOWNLOAD_URL"
-            wget -q "$DOWNLOAD_URL"
-          }
-
-          unzip chromedriver*.zip
-          sudo mv chromedriver*/chromedriver /usr/bin/chromedriver
-          sudo chmod +x /usr/bin/chromedriver
-
-          # 驗證安裝
-          echo "驗證 ChromeDriver 版本:"
-          chromedriver --version
-
-      - name: 創建必要目錄
-        run: |
-          mkdir -p app/utils/screenshots
-
-      - name: 執行自動化腳本
-        run: |
-          source .venv/bin/activate
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" python -m uvicorn app.main:app || {
-            echo "腳本執行失敗，錯誤代碼: $?"
-            echo "錯誤日誌:"
-            cat error.log
-            exit 1
-          }
-
-      - name: 上傳日誌和截圖
-        uses: actions/upload-artifact@v3
+      - name: 上傳結果
         if: always()
+        uses: actions/upload-artifact@v3
         with:
-          name: automation-artifacts
+          name: search-results
           path: |
             app/utils/screenshots/
             error.log
-          if-no-files-found: warn
