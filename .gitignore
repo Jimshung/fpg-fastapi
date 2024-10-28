@@ -1,4 +1,3 @@
-cat > .gitignore << EOL
 # Python
 __pycache__/
 *.py[cod]
@@ -27,6 +26,7 @@ fpg_venv/
 ENV/
 env/
 .env
+.venv/
 
 # IDE
 .idea/
@@ -40,9 +40,12 @@ env/
 logs/
 *.tmp
 temp/
-screenshots/
+app/utils/screenshots/
 
 # 作業系統
 .DS_Store
 Thumbs.db
-EOL
+
+# Act 相關
+.actrc
+.secrets

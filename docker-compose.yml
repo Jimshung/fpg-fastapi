@@ -1,0 +1,22 @@
+services:
+  fpg_automation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - ./app/utils/screenshots:/app/utils/screenshots
+    environment:
+      - APP_NAME=FPG Automation
+      - DEBUG=true
+      - CHROME_DRIVER_PATH=/usr/bin/chromedriver
+      - HEADLESS_MODE=true
+      - BASE_URL=${BASE_URL}
+      - LOGIN_URL=${LOGIN_URL}
+      - USERNAME=${USERNAME}
+      - PASSWORD=${PASSWORD}
+      - AZURE_ENDPOINT=${AZURE_ENDPOINT}
+      - AZURE_API_KEY=${AZURE_API_KEY}
+    command: -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - '8000:8000'
