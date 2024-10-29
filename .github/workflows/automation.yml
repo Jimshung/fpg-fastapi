@@ -14,20 +14,26 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-          cache: 'pip' # 添加 pip 快取
+          cache: 'pip'
 
-      - name: 安裝 Chrome 和系統依賴
+      - name: 安裝 Chrome 和 ChromeDriver
         run: |
+          # 安裝 Chrome
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/sources.list.d/google.list'
           sudo apt-get update
-          sudo apt-get install -y snapd
-          sudo snap install chromium
+          sudo apt-get install -y google-chrome-stable
 
-          # 如果已存在符號連結，先移除再建立新的
-          if [ -L /usr/bin/chromium-browser ]; then sudo rm /usr/bin/chromium-browser; fi
-          if [ -L /usr/bin/chromedriver ]; then sudo rm /usr/bin/chromedriver; fi
+          # 獲取 Chrome 版本
+          CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f 3 | cut -d '.' -f 1)
 
-          sudo ln -s /snap/bin/chromium /usr/bin/chromium-browser
-          sudo ln -s /snap/bin/chromedriver /usr/bin/chromedriver
+          # 下載對應版本的 ChromeDriver
+          wget -q "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}" -O chrome_version
+          CHROMEDRIVER_VERSION=$(cat chrome_version)
+          wget -q "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
+          unzip chromedriver_linux64.zip
+          sudo mv chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
 
       - name: 安裝 Python 依賴
         run: pip install -r requirements.txt
@@ -37,7 +43,7 @@ jobs:
           {
             echo "APP_NAME=FPG Automation"
             echo "DEBUG=True"
-            echo "CHROME_DRIVER_PATH=/usr/bin/chromedriver"
+            echo "CHROME_DRIVER_PATH=/usr/local/bin/chromedriver"
             echo "HEADLESS_MODE=True"
             echo "BASE_URL=${{ secrets.BASE_URL }}"
             echo "LOGIN_URL=${{ secrets.LOGIN_URL }}"
