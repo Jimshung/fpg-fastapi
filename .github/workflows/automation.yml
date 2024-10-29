@@ -15,6 +15,8 @@ jobs:
       AZURE_ENDPOINT: ${{ secrets.AZURE_ENDPOINT }}
       AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
       CHROME_DRIVER_PATH: /usr/local/bin/chromedriver
+      TZ: 'Asia/Taipei'
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v3
@@ -44,6 +46,7 @@ jobs:
 
       - name: 執行搜尋腳本
         id: search_script
+        continue-on-error: true
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
@@ -55,28 +58,38 @@ jobs:
           echo "duration=$duration" >> $GITHUB_OUTPUT
 
           # 獲取含有 app.services 的總行數
-          total_lines=$(echo "$log_output" | grep "app.services" | wc -l)
-          mid_point=$((total_lines / 2))
+          filtered_log=$(echo "$log_output" | grep "app.services")
+          total_lines=$(echo "$filtered_log" | wc -l)
+          echo "total_lines=$total_lines" >> $GITHUB_OUTPUT
 
-          # 提取日誌並格式化時間
-          log_summary=$(echo "$log_output" | grep "app.services" | awk '{
-            # 提取時間，只保留 HH:MM
-            split($2, time, ":")
-            hour_min = time[1] ":" time[2]
-            # 提取訊息內容
-            sub(/.*INFO - /, "")
-            # 輸出格式化後的行
-            print hour_min " • " $0
-          }' | (
-            # 輸出前10行
-            head -n 10
-            echo "..."
-            # 輸出中間10行
-            tail -n +$((mid_point - 5)) | head -n 10
-            echo "..."
-            # 輸出最後10行
-            tail -n 10
-          ))
+          # 根據總行數決定顯示策略
+          if [ $total_lines -le 20 ]; then
+            # 如果總行數少於等於20行，顯示全部
+            log_summary=$(echo "$filtered_log" | awk '{
+              split($2, time, ":")
+              hour_min = time[1] ":" time[2]
+              sub(/.*INFO - /, "")
+              print hour_min " • " $0
+            }')
+          else
+            # 如果超過20行，顯示頭尾和中間
+            mid_point=$((total_lines / 2))
+            log_summary=$(echo "$filtered_log" | awk '{
+              split($2, time, ":")
+              hour_min = time[1] ":" time[2]
+              sub(/.*INFO - /, "")
+              print hour_min " • " $0
+            }' | (
+              echo "【執行開始】"
+              head -n 10
+              echo "..."
+              echo "【執行中】"
+              tail -n +$((mid_point - 5)) | head -n 10
+              echo "..."
+              echo "【執行結束】"
+              tail -n 10
+            ))
+          fi
 
           echo "log_summary<<EOF" >> $GITHUB_OUTPUT
           echo "$log_summary" >> $GITHUB_OUTPUT
@@ -92,16 +105,18 @@ jobs:
           message: |
             *FPG 自動化流程執行報告* 🤖
 
+            📊 *執行資訊*
+            ${'-'.repeat(30)}
             *執行狀態*: ${{ job.status == 'success' && '✅ 成功' || '❌ 失敗' }}
             *執行時間*: ${{ steps.search_script.outputs.duration }} 秒
             *觸發方式*: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
             *執行分支*: ${{ github.ref_name }}
+            *總日誌行數*: ${{ steps.search_script.outputs.total_lines }} 行
+            ${'-'.repeat(30)}
 
-            *執行日誌摘要*:
+            📝 *執行日誌摘要*:
             ```
-            【開始】
             ${{ steps.search_script.outputs.log_summary }}
-            【結束】
             ```
 
             ${{ job.status != 'success' && '*❌ 錯誤詳情*: 請查看執行記錄' || '' }}
