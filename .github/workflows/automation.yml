@@ -18,16 +18,12 @@ jobs:
 
       - name: 安裝 Chrome 和 ChromeDriver
         run: |
-          # 安裝 Chrome
+          sudo mkdir -p /etc/apt/sources.list.d
           wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/sources.list.d/google.list'
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
           sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
-
-          # 獲取 Chrome 版本
+          sudo apt-get install -y google-chrome-stable xvfb
           CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f 3 | cut -d '.' -f 1)
-
-          # 下載對應版本的 ChromeDriver
           wget -q "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}" -O chrome_version
           CHROMEDRIVER_VERSION=$(cat chrome_version)
           wget -q "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
@@ -58,7 +54,7 @@ jobs:
 
       - name: 執行搜尋腳本
         run: |
-          python -c '
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" python -c '
           import asyncio
           from app.services.login_service import LoginService
           from app.models.schema import SearchRequest
