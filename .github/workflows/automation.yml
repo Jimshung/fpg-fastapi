@@ -7,6 +7,14 @@ on:
 jobs:
   run-automation:
     runs-on: ubuntu-20.04
+    env:
+      BASE_URL: ${{ secrets.BASE_URL }}
+      LOGIN_URL: ${{ secrets.LOGIN_URL }}
+      USERNAME: ${{ secrets.USERNAME }}
+      PASSWORD: ${{ secrets.PASSWORD }}
+      AZURE_ENDPOINT: ${{ secrets.AZURE_ENDPOINT }}
+      AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+
     steps:
       - uses: actions/checkout@v3
 
@@ -29,21 +37,6 @@ jobs:
 
       - name: 安裝 Python 依賴
         run: pip install -r requirements.txt
-
-      - name: 設置環境變數
-        run: |
-          {
-            echo "APP_NAME=FPG Automation"
-            echo "DEBUG=True"
-            echo "CHROME_DRIVER_PATH=$(which chromedriver)"
-            echo "HEADLESS_MODE=True"
-            echo "BASE_URL=${{ secrets.BASE_URL }}"
-            echo "LOGIN_URL=${{ secrets.LOGIN_URL }}"
-            echo "USERNAME=${{ secrets.USERNAME }}"
-            echo "PASSWORD=${{ secrets.PASSWORD }}"
-            echo "AZURE_ENDPOINT=${{ secrets.AZURE_ENDPOINT }}"
-            echo "AZURE_API_KEY=${{ secrets.AZURE_API_KEY }}"
-          } > .env
 
       - name: 創建截圖目錄
         run: mkdir -p app/utils/screenshots
