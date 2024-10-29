@@ -53,15 +53,31 @@ jobs:
           end_time=$(date +%s)
           duration=$((end_time - start_time))
           echo "duration=$duration" >> $GITHUB_OUTPUT
-          # 結合時間戳和簡潔格式
+
+          # 獲取含有 app.services 的總行數
+          total_lines=$(echo "$log_output" | grep "app.services" | wc -l)
+          mid_point=$((total_lines / 2))
+
+          # 提取日誌並格式化時間
           log_summary=$(echo "$log_output" | grep "app.services" | awk '{
-            # 提取時間
-            time=$2
-            # 提取訊息內容（移除 app.services 和 INFO 前綴）
+            # 提取時間，只保留 HH:MM
+            split($2, time, ":")
+            hour_min = time[1] ":" time[2]
+            # 提取訊息內容
             sub(/.*INFO - /, "")
             # 輸出格式化後的行
-            print time " • " $0
-          }' | tail -n 20)
+            print hour_min " • " $0
+          }' | (
+            # 輸出前10行
+            head -n 10
+            echo "..."
+            # 輸出中間10行
+            tail -n +$((mid_point - 5)) | head -n 10
+            echo "..."
+            # 輸出最後10行
+            tail -n 10
+          ))
+
           echo "log_summary<<EOF" >> $GITHUB_OUTPUT
           echo "$log_summary" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -83,7 +99,9 @@ jobs:
 
             *執行日誌摘要*:
             ```
+            【開始】
             ${{ steps.search_script.outputs.log_summary }}
+            【結束】
             ```
 
             ${{ job.status != 'success' && '*❌ 錯誤詳情*: 請查看執行記錄' || '' }}
