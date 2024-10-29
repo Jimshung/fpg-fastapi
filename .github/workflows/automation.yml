@@ -21,6 +21,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y snapd
           sudo snap install chromium
+
+          # 如果已存在符號連結，先移除再建立新的
+          if [ -L /usr/bin/chromium-browser ]; then sudo rm /usr/bin/chromium-browser; fi
+          if [ -L /usr/bin/chromedriver ]; then sudo rm /usr/bin/chromedriver; fi
+
           sudo ln -s /snap/bin/chromium /usr/bin/chromium-browser
           sudo ln -s /snap/bin/chromedriver /usr/bin/chromedriver
 
