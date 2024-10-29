@@ -50,22 +50,7 @@ jobs:
 
       - name: 執行搜尋腳本
         run: |
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" python -c '
-          import asyncio
-          from app.services.login_service import LoginService
-          from app.models.schema import SearchRequest
-          from datetime import date
-
-          async def main():
-              service = LoginService()
-              today = date.today()
-              params = SearchRequest(start_date=today, end_date=today)
-              result = await service.search_bulletins(params)
-              print(result)
-              await service.cleanup()
-
-          asyncio.run(main())
-          '
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" python app/scripts/run_automation.py
 
       - name: 上傳結果
         if: always()
@@ -74,4 +59,5 @@ jobs:
           name: search-results
           path: |
             app/utils/screenshots/
+            automation.log
             error.log
