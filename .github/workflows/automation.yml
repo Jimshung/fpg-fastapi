@@ -43,10 +43,35 @@ jobs:
         run: mkdir -p app/utils/screenshots
 
       - name: 執行搜尋腳本
+        id: search_script
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
+          start_time=$(date +%s)
           xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" python app/scripts/run_automation.py
+          end_time=$(date +%s)
+          duration=$((end_time - start_time))
+          echo "duration=$duration" >> $GITHUB_OUTPUT
+
+      - name: 發送 Telegram 通知
+        if: always()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          message: |
+            *FPG 自動化流程執行報告* 🤖
+
+            *執行狀態*: ${{ job.status == 'success' && '✅ 成功' || '❌ 失敗' }}
+            *執行時間*: ${{ steps.search_script.outputs.duration }} 秒
+            *觸發方式*: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
+            *執行分支*: ${{ github.ref_name }}
+            *執行時間*: $(date '+%Y-%m-%d %H:%M:%S')
+
+            ${{ job.status != 'success' && '*❌ 錯誤詳情*: 請查看執行記錄' || '' }}
+
+            [📋 查看詳細執行記錄](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
       - name: 上傳結果
         if: always()
