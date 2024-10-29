@@ -49,6 +49,8 @@ jobs:
         run: mkdir -p app/utils/screenshots
 
       - name: 執行搜尋腳本
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" python app/scripts/run_automation.py
 
