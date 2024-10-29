@@ -48,10 +48,23 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           start_time=$(date +%s)
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" python app/scripts/run_automation.py
+          # 將輸出導向到檔案並同時保存到變數
+          log_output=$(xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" python app/scripts/run_automation.py 2>&1 | tee automation.log)
           end_time=$(date +%s)
           duration=$((end_time - start_time))
           echo "duration=$duration" >> $GITHUB_OUTPUT
+          # 結合時間戳和簡潔格式
+          log_summary=$(echo "$log_output" | grep "app.services" | awk '{
+            # 提取時間
+            time=$2
+            # 提取訊息內容（移除 app.services 和 INFO 前綴）
+            sub(/.*INFO - /, "")
+            # 輸出格式化後的行
+            print time " • " $0
+          }' | tail -n 20)
+          echo "log_summary<<EOF" >> $GITHUB_OUTPUT
+          echo "$log_summary" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: 發送 Telegram 通知
         if: always()
@@ -67,7 +80,11 @@ jobs:
             *執行時間*: ${{ steps.search_script.outputs.duration }} 秒
             *觸發方式*: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
             *執行分支*: ${{ github.ref_name }}
-            *執行時間*: $(date '+%Y-%m-%d %H:%M:%S')
+
+            *執行日誌摘要*:
+            ```
+            ${{ steps.search_script.outputs.log_summary }}
+            ```
 
             ${{ job.status != 'success' && '*❌ 錯誤詳情*: 請查看執行記錄' || '' }}
 
