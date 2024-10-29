@@ -51,20 +51,20 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           start_time=$(date +%s)
-          # 將輸出導向到檔案並同時保存到變數
-          log_output=$(xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" python app/scripts/run_automation.py 2>&1 | tee automation.log)
+          # 直接輸出到終端，同時保存到日誌檔案
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" python app/scripts/run_automation.py 2>&1 | tee automation.log
           end_time=$(date +%s)
           duration=$((end_time - start_time))
           echo "duration=$duration" >> $GITHUB_OUTPUT
 
-          # 獲取含有 app.services 的總行數
-          filtered_log=$(echo "$log_output" | grep "app.services")
+          # 獲取含有 app.services 的日誌
+          filtered_log=$(cat automation.log | grep "app.services")
           total_lines=$(echo "$filtered_log" | wc -l)
           echo "total_lines=$total_lines" >> $GITHUB_OUTPUT
 
           # 根據總行數決定顯示策略
-          if [ $total_lines -le 20 ]; then
-            # 如果總行數少於等於20行，顯示全部
+          if [ $total_lines -le 50 ]; then
+            # 如果總行數少於等於50行，顯示全部
             log_summary=$(echo "$filtered_log" | awk '{
               split($2, time, ":")
               hour_min = time[1] ":" time[2]
@@ -72,7 +72,7 @@ jobs:
               print hour_min " • " $0
             }')
           else
-            # 如果超過20行，顯示頭尾和中間
+            # 如果超過50行，顯示頭尾和中間
             mid_point=$((total_lines / 2))
             log_summary=$(echo "$filtered_log" | awk '{
               split($2, time, ":")
@@ -81,13 +81,13 @@ jobs:
               print hour_min " • " $0
             }' | (
               echo "【執行開始】"
-              head -n 10
+              head -n 20
               echo "..."
               echo "【執行中】"
-              tail -n +$((mid_point - 5)) | head -n 10
+              tail -n +$((mid_point - 10)) | head -n 20
               echo "..."
               echo "【執行結束】"
-              tail -n 10
+              tail -n 20
             ))
           fi
 
