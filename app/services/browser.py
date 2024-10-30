@@ -13,7 +13,11 @@ class BrowserService:
     def init_driver(self):
         try:
             options = self.get_browser_options()
-            service = Service(ChromeDriverManager().install())
+            service = Service(ChromeDriverManager(version="stable").install())
+            if settings.ENVIRONMENT == "ci":
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-dev-shm-usage")
+                options.binary_location = "/usr/bin/google-chrome"
             self.driver = webdriver.Chrome(service=service, options=options)
             self.driver.implicitly_wait(10)
             self.logger.info("瀏覽器初始化成功")
@@ -26,11 +30,13 @@ class BrowserService:
         options = webdriver.ChromeOptions()
         if settings.HEADLESS_MODE:
             options.add_argument("--headless=new")
+            options.add_argument("--disable-gpu")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
         options.add_argument("--ignore-certificate-errors")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-setuid-sandbox")
         return options
 
     def close_driver(self):
