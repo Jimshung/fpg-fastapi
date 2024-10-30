@@ -28,10 +28,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Create Screenshots directory
+        run: |
+          mkdir -p app/utils/screenshots
+
       - name: Set up environment
         run: |
           cp .env.example .env
-          # 設定必要的環境變數
           echo "ENVIRONMENT=ci" >> .env
           echo "HEADLESS_MODE=true" >> .env
 

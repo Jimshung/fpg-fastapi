@@ -13,7 +13,7 @@ class BrowserService:
     def init_driver(self):
         try:
             options = self.get_browser_options()
-            service = Service(ChromeDriverManager(version="stable").install())
+            service = Service(ChromeDriverManager().install())
             if settings.ENVIRONMENT == "ci":
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
