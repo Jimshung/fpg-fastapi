@@ -2,6 +2,7 @@ import os
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from pydantic import validator
+from typing import Optional
 
 class Settings(BaseSettings):
     APP_NAME: str = "FPG Automation"
@@ -12,7 +13,7 @@ class Settings(BaseSettings):
     
     # 瀏覽器設定
     CHROME_DRIVER_PATH: str
-    HEADLESS_MODE: bool = False
+    HEADLESS_MODE: bool = True
     
     # 網站設定
     BASE_URL: str
@@ -23,8 +24,13 @@ class Settings(BaseSettings):
     PASSWORD: str
     
     # Azure 設定
-    AZURE_ENDPOINT: str
-    AZURE_API_KEY: str
+    AZURE_ENDPOINT: Optional[str] = None
+    AZURE_API_KEY: Optional[str] = None
+
+    # Telegram Bot 設定
+    TELEGRAM_BOT_TOKEN: Optional[str] = None
+    TELEGRAM_CHAT_ID: Optional[str] = None
+    ENABLE_TELEGRAM_NOTIFY: bool = True
 
     @validator('HEADLESS_MODE', pre=True)
     def set_headless_mode(cls, v, values):

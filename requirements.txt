@@ -9,3 +9,4 @@ python-multipart==0.0.6
 aiohttp==3.9.1
 Pillow==10.1.0
 tenacity==8.2.3
+webdriver-manager==3.9.1

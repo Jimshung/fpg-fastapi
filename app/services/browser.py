@@ -1,6 +1,6 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 from app.core.config import settings
 import logging
 
@@ -13,7 +13,7 @@ class BrowserService:
     def init_driver(self):
         try:
             options = self.get_browser_options()
-            service = Service(settings.CHROME_DRIVER_PATH)
+            service = Service(ChromeDriverManager().install())
             self.driver = webdriver.Chrome(service=service, options=options)
             self.driver.implicitly_wait(10)
             self.logger.info("瀏覽器初始化成功")
@@ -23,13 +23,14 @@ class BrowserService:
             raise
 
     def get_browser_options(self):
-        options = Options()
+        options = webdriver.ChromeOptions()
         if settings.HEADLESS_MODE:
             options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
+        options.add_argument("--ignore-certificate-errors")
         return options
 
     def close_driver(self):
