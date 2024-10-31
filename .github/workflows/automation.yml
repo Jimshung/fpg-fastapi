@@ -55,18 +55,12 @@ jobs:
       - name: Run automation script
         id: automation
         run: |
-          # 記錄開始時間
-          start_time=$(date +%s)
-
           # 執行腳本並收集完整日誌
           python -m app.scripts.run_automation 2>&1 | tee automation.log
 
-          # 計算執行時間
-          end_time=$(date +%s)
-          duration=$((end_time - start_time))
-
-          # 輸出執行時間
-          echo "duration=$duration" >> $GITHUB_OUTPUT
+          # 設定時間相關資訊
+          echo "EXECUTION_TIME=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_ENV"
+          echo "EXECUTION_DURATION=$(($(date +%s) - $(date -d "$(head -n1 automation.log | cut -d' ' -f1,2)" +%s)))" >> "$GITHUB_ENV"
 
           # GitHub Actions 完整日誌輸出
           {
@@ -99,12 +93,21 @@ jobs:
             echo "status=failure" >> $GITHUB_OUTPUT
           fi
 
-          # 輸出當前時間（台北時區）
-          echo "current_time=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
+      - name: 顯示執行資訊
+        run: |
+          echo "============執行資訊============"
+          echo "執行時間: $EXECUTION_TIME"
+          echo "執行耗時: $EXECUTION_DURATION 秒"
+          echo "觸發方式: ${{ github.event_name }}"
+          echo "執行狀態: ${{ steps.automation.outputs.status }}"
+          echo "================================"
 
       - name: 發送 Telegram 通知
         if: always()
         uses: appleboy/telegram-action@master
+        env:
+          EXECUTION_TIME: ${{ env.EXECUTION_TIME }}
+          EXECUTION_DURATION: ${{ env.EXECUTION_DURATION }}
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -114,8 +117,8 @@ jobs:
 
             📊 *執行資訊*
             執行狀態: ${{ steps.automation.outputs.status == 'success' && '✅ 成功' || '❌ 失敗' }}
-            執行時間: ${{ steps.automation.outputs.current_time }}
-            執行耗時: ${{ steps.automation.outputs.duration }} 秒
+            執行時間: ${{ env.EXECUTION_TIME }}
+            執行耗時: ${{ env.EXECUTION_DURATION }} 秒
             觸發方式: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
 
             🔍 *執行日誌*:
