@@ -21,15 +21,20 @@ class BrowserService:
     def init_driver(self):
         try:
             options = webdriver.ChromeOptions()
-            if settings.HEADLESS_MODE:
-                options.add_argument('--headless=new')
             options.add_argument('--no-sandbox')
+            options.add_argument('--headless=new')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--window-size=1920,1080')
             
-            driver_path = ChromeDriverManager().install()
-            service = Service(executable_path=driver_path)
-            self.driver = webdriver.Chrome(service=service, options=options)
+            if settings.ENVIRONMENT == "ci":
+                # 在 GitHub Actions 中使用系統安裝的 ChromeDriver
+                self.driver = webdriver.Chrome(options=options)
+            else:
+                # 本地開發環境使用 webdriver_manager
+                driver_path = ChromeDriverManager().install()
+                service = Service(executable_path=driver_path)
+                self.driver = webdriver.Chrome(service=service, options=options)
+                
             self.driver.implicitly_wait(10)
             self.logger.info("瀏覽器初始化成功")
             return self.driver

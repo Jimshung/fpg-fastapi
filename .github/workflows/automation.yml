@@ -42,9 +42,19 @@ jobs:
         id: automation
         run: |
           echo "time=$(date '+%Y-%m-%d %H:%M')" >> $GITHUB_OUTPUT
-          python -m app.scripts.run_automation 2>&1 | tee automation.log
-          echo "log=$(cat automation.log)" >> $GITHUB_OUTPUT
-          if [ $? -eq 0 ]; then
+          # 執行腳本並格式化日誌
+          python -m app.scripts.run_automation 2>&1 | while IFS= read -r line; do
+            echo "$line"
+            if [[ "$line" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then
+              echo "$line" >> formatted_log.txt
+            fi
+          done
+          # 設定日誌輸出
+          echo "log<<EOF" >> $GITHUB_OUTPUT
+          cat formatted_log.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          # 設定執行狀態
+          if [ ${PIPESTATUS[0]} -eq 0 ]; then
             echo "status=success" >> $GITHUB_OUTPUT
           else
             echo "status=failure" >> $GITHUB_OUTPUT
