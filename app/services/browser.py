@@ -1,9 +1,17 @@
+"""
+瀏覽器服務模組。
+
+TODO: 未來優化方向
+- 加入容器化支援 (Docker + Selenium Grid)
+- 改善錯誤處理機制
+- 增加更多瀏覽器選項配置
+"""
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from app.core.config import settings
 import logging
-
 
 class BrowserService:
     def __init__(self):
@@ -12,12 +20,15 @@ class BrowserService:
 
     def init_driver(self):
         try:
-            options = self.get_browser_options()
-            service = Service(ChromeDriverManager().install())
-            if settings.ENVIRONMENT == "ci":
-                options.add_argument("--no-sandbox")
-                options.add_argument("--disable-dev-shm-usage")
-                options.binary_location = "/usr/bin/google-chrome"
+            options = webdriver.ChromeOptions()
+            if settings.HEADLESS_MODE:
+                options.add_argument('--headless=new')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--window-size=1920,1080')
+            
+            driver_path = ChromeDriverManager().install()
+            service = Service(executable_path=driver_path)
             self.driver = webdriver.Chrome(service=service, options=options)
             self.driver.implicitly_wait(10)
             self.logger.info("瀏覽器初始化成功")
@@ -25,19 +36,6 @@ class BrowserService:
         except Exception as e:
             self.logger.error(f"瀏覽器初始化失敗: {str(e)}")
             raise
-
-    def get_browser_options(self):
-        options = webdriver.ChromeOptions()
-        if settings.HEADLESS_MODE:
-            options.add_argument("--headless=new")
-            options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--ignore-certificate-errors")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--disable-setuid-sandbox")
-        return options
 
     def close_driver(self):
         if self.driver:

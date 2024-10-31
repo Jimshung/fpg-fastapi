@@ -1,12 +1,12 @@
 name: FPG 自動化流程 (Python)
 on:
   schedule:
-    - cron: '0 0 * * 1-5'
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:
   run-automation:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     env:
       BASE_URL: ${{ secrets.BASE_URL }}
       LOGIN_URL: ${{ secrets.LOGIN_URL }}
@@ -45,55 +45,9 @@ jobs:
         run: mkdir -p app/utils/screenshots
 
       - name: 執行搜尋腳本
-        id: search_script
-        continue-on-error: true
-        env:
-          PYTHONPATH: ${{ github.workspace }}
+        id: automation
         run: |
-          start_time=$(date +%s)
-          # 直接輸出到終端，同時保存到日誌檔案
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" python app/scripts/run_automation.py 2>&1 | tee automation.log
-          end_time=$(date +%s)
-          duration=$((end_time - start_time))
-          echo "duration=$duration" >> $GITHUB_OUTPUT
-
-          # 獲取含有 app.services 的日誌
-          filtered_log=$(cat automation.log | grep "app.services")
-          total_lines=$(echo "$filtered_log" | wc -l)
-          echo "total_lines=$total_lines" >> $GITHUB_OUTPUT
-
-          # 根據總行數決定顯示策略
-          if [ $total_lines -le 50 ]; then
-            # 如果總行數少於等於50行，顯示全部
-            log_summary=$(echo "$filtered_log" | awk '{
-              split($2, time, ":")
-              hour_min = time[1] ":" time[2]
-              sub(/.*INFO - /, "")
-              print hour_min " • " $0
-            }')
-          else
-            # 如果超過50行，顯示頭尾和中間
-            mid_point=$((total_lines / 2))
-            log_summary=$(echo "$filtered_log" | awk '{
-              split($2, time, ":")
-              hour_min = time[1] ":" time[2]
-              sub(/.*INFO - /, "")
-              print hour_min " • " $0
-            }' | (
-              echo "【執行開始】"
-              head -n 20
-              echo "..."
-              echo "【執行中】"
-              tail -n +$((mid_point - 10)) | head -n 20
-              echo "..."
-              echo "【執行結束】"
-              tail -n 20
-            ))
-          fi
-
-          echo "log_summary<<EOF" >> $GITHUB_OUTPUT
-          echo "$log_summary" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          python -m app.scripts.run_automation
 
       - name: 發送 Telegram 通知
         if: always()
@@ -106,22 +60,14 @@ jobs:
             *FPG 自動化流程執行報告* 🤖
 
             📊 *執行資訊*
-            ${'-'.repeat(30)}
-            *執行狀態*: ${{ job.status == 'success' && '✅ 成功' || '❌ 失敗' }}
-            *執行時間*: ${{ steps.search_script.outputs.duration }} 秒
-            *觸發方式*: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
-            *執行分支*: ${{ github.ref_name }}
-            *總日誌行數*: ${{ steps.search_script.outputs.total_lines }} 行
-            ${'-'.repeat(30)}
+            執行狀態: ${{ job.status == 'success' && '✅ 成功' || '❌ 失敗' }}
+            執行時間: ${{ steps.automation.outputs.time }}
+            觸發方式: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
 
-            📝 *執行日誌摘要*:
+            🔍 *執行日誌*:
             ```
-            ${{ steps.search_script.outputs.log_summary }}
+            ${{ steps.automation.outputs.log }}
             ```
-
-            ${{ job.status != 'success' && '*❌ 錯誤詳情*: 請查看執行記錄' || '' }}
-
-            [📋 查看詳細執行記錄](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
       - name: 上傳結果
         if: always()

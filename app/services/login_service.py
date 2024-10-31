@@ -61,17 +61,51 @@ class LoginService:
             await clear_screenshots_folder(self.logger)  
             await ensure_screenshots_dir(self.logger)   
             self.logger.info("開始登入流程")
+            
+            # 添加更多日誌
+            self.logger.info("正在初始化 driver...")
             driver = await self.get_driver()
+            self.logger.info("driver 初始化完成")
+            
+            # 添加 driver 資訊日誌
+            if driver:
+                self.logger.info(f"Driver 類型: {type(driver)}")
+                self.logger.info(f"Driver 設定: {driver.capabilities}")
+            else:
+                self.logger.error("Driver 初始化失敗")
+                return {"status": "error", "message": "Driver 初始化失敗"}
+
+            # 嘗試訪問頁面
+            self.logger.info(f"正在訪問登入頁面: {settings.LOGIN_URL}")
+            try:
+                driver.get(settings.LOGIN_URL)
+                self.logger.info("成功訪問登入頁面")
+            except Exception as e:
+                self.logger.error(f"訪問登入頁面失敗: {str(e)}")
+                return {"status": "error", "message": f"訪問登入頁面失敗: {str(e)}"}
+
             login_result = await self.perform_login(driver)
+            self.logger.info(f"登入結果: {login_result}")
+            
             if login_result["status"] == "success":
                 self.is_logged_in = True
+                self.logger.info("登入成功，已設置登入狀態")
+            else:
+                self.logger.warning("登入失敗")
+                
             return login_result
         except WebDriverException as e:
             self.logger.error("瀏覽器操作錯誤: %s", str(e))
+            # 添加更多錯誤資訊
+            self.logger.error(f"錯誤類型: {type(e).__name__}")
+            self.logger.error(f"錯誤詳情: {str(e)}")
             await self.cleanup()
             return {"status": "error", "message": str(e)}
         except Exception as e:
             self.logger.error("未預期的錯誤: %s", str(e))
+            # 添加堆疊追蹤
+            import traceback
+            self.logger.error(f"錯誤堆疊: {traceback.format_exc()}")
             await self.cleanup()
             return {"status": "error", "message": str(e)}
 
@@ -437,7 +471,7 @@ class LoginService:
                     search_params.end_date.strftime('%Y-%m-%d')
                 )
             
-            return {"status": "success", "message": "搜尋完成"}
+            return {"status": "success", "message": "搜尋完��"}
         except Exception as e:
             return {"status": "error", "message": f"搜尋失敗: {str(e)}"}
 
