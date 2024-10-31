@@ -6,6 +6,7 @@ from app.utils.telegram import send_telegram_notification
 from app.core.config import settings
 import logging
 from io import StringIO
+import os
 
 # 設定根日誌記錄器
 logging.basicConfig(level=logging.INFO)
@@ -72,6 +73,15 @@ async def main():
         logger.info("自動化流程完成")
         # 從根日誌記錄器移除處理器
         root_logger.removeHandler(log_handler)
+        
+        # 在腳本結束時
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        
+        # 將時間信息寫入環境變數文件
+        with open(os.environ['GITHUB_ENV'], 'a') as f:
+            f.write(f"EXECUTION_TIME={end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"EXECUTION_DURATION={int(duration)}\n")
 
 if __name__ == "__main__":
     asyncio.run(main())
