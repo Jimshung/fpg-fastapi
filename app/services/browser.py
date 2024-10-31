@@ -28,7 +28,8 @@ class BrowserService:
             
             if settings.ENVIRONMENT == "ci":
                 # 在 GitHub Actions 中使用系統安裝的 ChromeDriver
-                self.driver = webdriver.Chrome(options=options)
+                service = Service(executable_path=settings.CHROME_DRIVER_PATH)
+                self.driver = webdriver.Chrome(service=service, options=options)
             else:
                 # 本地開發環境使用 webdriver_manager
                 driver_path = ChromeDriverManager().install()
