@@ -55,26 +55,42 @@ jobs:
       - name: Run automation script
         id: automation
         run: |
-          # 設定時間
-          echo "time=$(date '+%Y-%m-%d %H:%M')" >> $GITHUB_OUTPUT
+          # 記錄開始時間
+          start_time=$(date +%s)
 
-          # 執行腳本並收集日誌
+          # 執行腳本並收集完整日誌
           python -m app.scripts.run_automation 2>&1 | tee automation.log
 
-          # 處理日誌輸出
+          # 計算執行時間
+          end_time=$(date +%s)
+          duration=$((end_time - start_time))
+
+          # GitHub Actions 完整日誌輸出
           {
-            echo 'log<<ENDLOG'
-            # 使用 awk 處理日誌，保留所有 INFO 和 ERROR 訊息
-            awk '/INFO:|ERROR:/ {print}' automation.log
-            echo 'ENDLOG'
+            echo "time=$(date '+%Y-%m-%d %H:%M')"  # 完整時間格式
+            echo "duration=$duration"
+            echo "log<<EOF"
+            cat automation.log  # 顯示完整日誌
+            echo "EOF"
           } >> $GITHUB_OUTPUT
 
-          # 設定狀態
-          if grep -q "處理完成" automation.log; then
-            echo "status=success" >> $GITHUB_OUTPUT
-          else
-            echo "status=failure" >> $GITHUB_OUTPUT
-          fi
+          # Telegram 日誌格式化（只保留重要部分）
+          {
+            echo "telegram_time=$(date '+%H:%M')"  # 只有時分
+            echo "telegram_log<<EOF"
+            if [ $(grep -c "app.services" automation.log) -le 20 ]; then
+              grep "app.services" automation.log
+            else
+              {
+                echo "【執行開始】"
+                grep "app.services" automation.log | head -n 5
+                echo "..."
+                echo "【執行結束】"
+                grep "app.services" automation.log | tail -n 5
+              }
+            fi
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
 
       - name: 發送 Telegram 通知
         if: always()
@@ -88,13 +104,16 @@ jobs:
 
             📊 *執行資訊*
             執行狀態: ${{ steps.automation.outputs.status == 'success' && '✅ 成功' || '❌ 失敗' }}
-            執行時間: ${{ steps.automation.outputs.time }}
+            執行時間: ${{ steps.automation.outputs.telegram_time }}  # 使用簡化時間
+            執行耗時: ${{ steps.automation.outputs.duration }} 秒
             觸發方式: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
 
             🔍 *執行日誌*:
             ```
-            ${{ steps.automation.outputs.log }}
+            ${{ steps.automation.outputs.telegram_log }}
             ```
+
+            [📋 完整記錄](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
       - name: Upload results
         if: always()
