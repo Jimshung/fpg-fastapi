@@ -27,27 +27,37 @@ jobs:
           python-version: '3.9'
           cache: 'pip'
 
-      - name: 安裝 Chrome 和 ChromeDriver
-        uses: browser-actions/setup-chrome@v1
-        with:
-          chrome-version: stable
+      - name: Install Chrome and ChromeDriver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+          CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f 3)
+          wget -N https://chromedriver.storage.googleapis.com/$CHROME_VERSION/chromedriver_linux64.zip
+          unzip chromedriver_linux64.zip
+          sudo mv chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
 
-      - name: 安裝 ChromeDriver
-        uses: nanasess/setup-chromedriver@v2
-
-      - name: 安裝 xvfb
-        run: sudo apt-get install -y xvfb
-
-      - name: 安裝 Python 依賴
+      - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: 創建截圖目錄
+      - name: Create Screenshots directory
         run: mkdir -p app/utils/screenshots
 
-      - name: 執行搜尋腳本
+      - name: Run automation script
         id: automation
         run: |
-          python -m app.scripts.run_automation
+          echo "time=$(date '+%Y-%m-%d %H:%M')" >> $GITHUB_OUTPUT
+          python -m app.scripts.run_automation 2>&1 | tee automation.log
+          echo "log=$(cat automation.log)" >> $GITHUB_OUTPUT
+          if [ $? -eq 0 ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+          fi
 
       - name: 發送 Telegram 通知
         if: always()
@@ -60,7 +70,7 @@ jobs:
             *FPG 自動化流程執行報告* 🤖
 
             📊 *執行資訊*
-            執行狀態: ${{ job.status == 'success' && '✅ 成功' || '❌ 失敗' }}
+            執行狀態: ${{ steps.automation.outputs.status == 'success' && '✅ 成功' || '❌ 失敗' }}
             執行時間: ${{ steps.automation.outputs.time }}
             觸發方式: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
 
@@ -69,7 +79,7 @@ jobs:
             ${{ steps.automation.outputs.log }}
             ```
 
-      - name: 上傳結果
+      - name: Upload results
         if: always()
         uses: actions/upload-artifact@v3
         with:
