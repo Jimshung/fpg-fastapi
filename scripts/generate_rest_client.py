@@ -1,6 +1,6 @@
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, date
 
 def generate_rest_client_file():
     # 獲取 OpenAPI 規範
@@ -17,9 +17,48 @@ def generate_rest_client_file():
         "\n###\n"
     ]
     
+    # 添加 /search 端點的所有可能用法
+    requests_content.extend([
+        "### 搜尋標售公報 - 使用日期範圍",
+        "POST http://localhost:8000/api/v1/search",
+        "Content-Type: application/json",
+        "",
+        json.dumps({
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31"
+        }, indent=2),
+        "\n###\n",
+        
+        "### 搜尋標售公報 - 使用案號",
+        "POST http://localhost:8000/api/v1/search",
+        "Content-Type: application/json",
+        "",
+        json.dumps({
+            "case_number": "FPG-2024-001"
+        }, indent=2),
+        "\n###\n",
+        
+        "### 搜尋標售公報 - 使用單一日期（結束日期會自動設為開始日期）",
+        "POST http://localhost:8000/api/v1/search",
+        "Content-Type: application/json",
+        "",
+        json.dumps({
+            "start_date": "2024-01-01"
+        }, indent=2),
+        "\n###\n",
+        
+        "### 搜尋標售公報 - 空請求體（使用今天日期作為預設值）",
+        "POST http://localhost:8000/api/v1/search",
+        "Content-Type: application/json",
+        "",
+        json.dumps({}, indent=2),
+        "\n###\n"
+    ])
+    
+    # 添加其他 API 端點
     for path, methods in api_spec['paths'].items():
-        # 跳過文檔相關的路由
-        if path in ['/docs', '/redoc', '/openapi.json']:
+        # 跳過文檔相關的路由和已經處理的 search 路由
+        if path in ['/docs', '/redoc', '/openapi.json', '/api/v1/search']:
             continue
             
         for method, details in methods.items():

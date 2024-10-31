@@ -78,3 +78,66 @@ python app/scripts/run_automation.py
 ## 授權
 
 [您的授權方式]
+
+## FPG FastAPI 專案
+
+### API 測試工具
+
+#### 生成 API 測試檔案
+
+1. 安裝 VSCode REST Client 擴充功能
+2. 確保 FastAPI 服務正在運行：
+
+```bash
+uvicorn app.main:app --reload
+```
+
+3. 執行生成腳本：
+
+```bash
+python scripts/generate_rest_client.py
+```
+
+4. 使用生成的測試檔案：
+   - 打開生成的 `api_requests_*.http` 檔案
+   - 在每個請求上方會看到 "Send Request" 的連結
+   - 點擊連結即可發送請求
+
+#### API 端點說明
+
+##### POST /api/v1/search
+
+支援以下幾種請求格式：
+
+1. 使用日期範圍搜尋：
+
+```json
+{
+  "start_date": "2024-01-01",
+  "end_date": "2024-01-31"
+}
+```
+
+2. 使用案號搜尋：
+
+```json
+{
+  "case_number": "FPG-2024-001"
+}
+```
+
+3. 使用單一日期：
+
+```json
+{
+  "start_date": "2024-01-01"
+}
+```
+
+4. 空請求體（使用今天日期）：
+
+```json
+{}
+```
+
+注意：不能同時指定案號和日期範圍。
