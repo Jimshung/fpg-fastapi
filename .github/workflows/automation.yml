@@ -27,10 +27,24 @@ jobs:
           python-version: '3.9'
           cache: 'pip'
 
-      - name: Setup Chrome
-        uses: browser-actions/setup-chrome@v1
-        with:
-          chrome-version: stable
+      - name: Setup Chrome and ChromeDriver
+        run: |
+          # 安裝 Chrome
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+          # 獲取 Chrome 版本
+          CHROME_VERSION=$(google-chrome --version | cut -d " " -f3)
+
+          # 下載對應版本的 ChromeDriver
+          wget -q "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$CHROME_VERSION/linux64/chromedriver-linux64.zip"
+          unzip chromedriver-linux64.zip
+          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
+
+          # 驗證安裝
+          google-chrome --version
+          chromedriver --version
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -41,15 +55,21 @@ jobs:
       - name: Run automation script
         id: automation
         run: |
+          # 設定時間
           echo "time=$(date '+%Y-%m-%d %H:%M')" >> $GITHUB_OUTPUT
+
           # 執行腳本並收集日誌
           python -m app.scripts.run_automation 2>&1 | tee automation.log
-          # 格式化日誌輸出
-          echo 'log<<EOF' >> $GITHUB_OUTPUT
-          grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}' automation.log >> $GITHUB_OUTPUT
-          echo 'EOF' >> $GITHUB_OUTPUT
-          # 設定執行狀態
-          if [ $? -eq 0 ]; then
+
+          # 處理日誌輸出
+          {
+            echo 'log<<ENDLOG'
+            grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}' automation.log || true
+            echo 'ENDLOG'
+          } >> $GITHUB_OUTPUT
+
+          # 設定狀態
+          if grep -q "登入成功" automation.log; then
             echo "status=success" >> $GITHUB_OUTPUT
           else
             echo "status=failure" >> $GITHUB_OUTPUT

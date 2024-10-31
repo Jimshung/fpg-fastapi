@@ -1,16 +1,10 @@
 """
 瀏覽器服務模組。
-
-TODO: 未來優化方向
-- 加入容器化支援 (Docker + Selenium Grid)
-- 改善錯誤處理機制
-- 增加更多瀏覽器選項配置
 """
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-from app.core.config import settings
 import logging
 
 class BrowserService:
@@ -26,15 +20,10 @@ class BrowserService:
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--window-size=1920,1080')
             
-            if settings.ENVIRONMENT == "ci":
-                # 在 GitHub Actions 中使用系統安裝的 ChromeDriver
-                service = Service(executable_path=settings.CHROME_DRIVER_PATH)
-                self.driver = webdriver.Chrome(service=service, options=options)
-            else:
-                # 本地開發環境使用 webdriver_manager
-                driver_path = ChromeDriverManager().install()
-                service = Service(executable_path=driver_path)
-                self.driver = webdriver.Chrome(service=service, options=options)
+            # 使用 webdriver_manager 自動管理 ChromeDriver
+            driver_path = ChromeDriverManager().install()
+            service = Service(executable_path=driver_path)
+            self.driver = webdriver.Chrome(service=service, options=options)
                 
             self.driver.implicitly_wait(10)
             self.logger.info("瀏覽器初始化成功")
