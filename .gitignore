@@ -50,3 +50,10 @@ Thumbs.db
 # Act 相關
 .actrc
 .secrets
+
+# REST Client 生成的檔案
+api_requests_*.http
+
+# 其他不需要的檔案
+thunder-collection/
+curl_commands_*.txt
