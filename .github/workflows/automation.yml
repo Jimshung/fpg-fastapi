@@ -67,8 +67,6 @@ jobs:
 
           # GitHub Actions 完整日誌輸出
           {
-            echo "time=$(date '+%Y-%m-%d %H:%M')"  # 完整時間格式
-            echo "duration=$duration"
             echo "log<<EOF"
             cat automation.log  # 顯示完整日誌
             echo "EOF"
@@ -76,7 +74,6 @@ jobs:
 
           # Telegram 日誌格式化（只保留重要部分）
           {
-            echo "telegram_time=$(date '+%H:%M')"  # 只有時分
             echo "telegram_log<<EOF"
             if [ $(grep -c "app.services" automation.log) -le 20 ]; then
               grep "app.services" automation.log
@@ -92,6 +89,13 @@ jobs:
             echo "EOF"
           } >> $GITHUB_OUTPUT
 
+          # 設定執行狀態
+          if grep -q "處理完成" automation.log && ! grep -q "ERROR:" automation.log; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+          fi
+
       - name: 發送 Telegram 通知
         if: always()
         uses: appleboy/telegram-action@master
@@ -104,7 +108,7 @@ jobs:
 
             📊 *執行資訊*
             執行狀態: ${{ steps.automation.outputs.status == 'success' && '✅ 成功' || '❌ 失敗' }}
-            執行時間: ${{ steps.automation.outputs.telegram_time }}  # 使用簡化時間
+            執行時間: $(date '+%H:%M')
             執行耗時: ${{ steps.automation.outputs.duration }} 秒
             觸發方式: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
 
