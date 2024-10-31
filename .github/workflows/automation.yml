@@ -49,12 +49,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Create Screenshots directory
-        run: mkdir -p app/utils/screenshots
-
       - name: Run automation script
         id: automation
         run: |
+          # 清理並重新創建目錄
+          rm -rf app/utils/screenshots app/metrics
+          mkdir -p app/utils/screenshots app/metrics
+
           # 執行腳本並收集完整日誌
           python -m app.scripts.run_automation 2>&1 | tee automation.log
 
@@ -137,3 +138,16 @@ jobs:
             app/utils/screenshots/
             automation.log
             error.log
+
+      - name: 清理舊檔案
+        run: |
+          python -c "
+          from app.utils.cleanup import CleanupService
+          import asyncio
+
+          async def cleanup():
+              cleaner = CleanupService('app/utils/screenshots')
+              await cleaner.cleanup_old_files()
+
+          asyncio.run(cleanup())
+          "

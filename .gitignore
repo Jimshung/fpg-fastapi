@@ -41,6 +41,7 @@ logs/
 *.tmp
 temp/
 app/utils/screenshots/
+app/metrics
 
 # 作業系統
 .DS_Store
