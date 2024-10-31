@@ -108,7 +108,7 @@ jobs:
 
             📊 *執行資訊*
             執行狀態: ${{ steps.automation.outputs.status == 'success' && '✅ 成功' || '❌ 失敗' }}
-            執行時間: $(date '+%H:%M')
+            執行時間: ${{ format(github.event.schedule && github.event.schedule || github.run_started_at, 'HH:mm') }}
             執行耗時: ${{ steps.automation.outputs.duration }} 秒
             觸發方式: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
 
