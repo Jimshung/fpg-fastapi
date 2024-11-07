@@ -55,6 +55,9 @@ jobs:
       - name: Run automation script
         id: automation
         run: |
+          # 記錄開始時間
+          START_TIME=$(date +%s)
+
           # 清理並重新創建目錄
           rm -rf app/utils/screenshots app/metrics
           mkdir -p app/utils/screenshots app/metrics
@@ -62,9 +65,11 @@ jobs:
           # 執行腳本並收集完整日誌
           python -m app.scripts.run_automation 2>&1 | tee automation.log
 
-          # 設定時間相關資訊
+          # 計算執行時間（修改這部分）
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
           echo "EXECUTION_TIME=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_ENV"
-          echo "EXECUTION_DURATION=$(($(date +%s) - $(date -d "$(head -n1 automation.log | cut -d' ' -f1,2)" +%s)))" >> "$GITHUB_ENV"
+          echo "EXECUTION_DURATION=$DURATION" >> "$GITHUB_ENV"
 
           # GitHub Actions 完整日誌輸出
           {
