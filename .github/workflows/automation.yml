@@ -97,8 +97,9 @@ jobs:
             echo "EOF"
           } >> $GITHUB_OUTPUT
 
-          # 設定執行狀態
-          if grep -q "搜尋結果: {'status': 'success'" automation.log; then
+          # 修改執行狀態判斷邏輯
+          if grep -q "自動化流程完成" automation.log && \
+             ! grep -q "ERROR:" automation.log; then
             echo "status=success" >> $GITHUB_OUTPUT
           else
             echo "status=failure" >> $GITHUB_OUTPUT
