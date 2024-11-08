@@ -2,6 +2,7 @@ import aiohttp
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # 設置此模組的日誌級別為 DEBUG
 
 async def send_telegram_notification(bot_token: str, chat_id: str, message: str):
     """發送 Telegram 通知"""
