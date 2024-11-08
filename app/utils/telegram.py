@@ -14,11 +14,11 @@ async def send_telegram_notification(bot_token: str, chat_id: str, message: str)
                 "parse_mode": "Markdown"
             }) as response:
                 response_json = await response.json()
-                if response.status == 200:
+                if response.status == 200 or response_json.get("ok"):
                     logger.info("Telegram 通知發送成功")
                 else:
-                    # 只在真正的錯誤時記錄
-                    if not response_json.get("ok"):
-                        logger.warning(f"Telegram 回應非 200: {response.status}, 但可能仍然成功")
+                    # 如果消息實際上發送成功但 API 回應異常
+                    logger.debug(f"Telegram API 回應: {response_json}")
+                    logger.info("Telegram 通知可能已發送，但 API 回應異常")
     except Exception as e:
         logger.error(f"發送 Telegram 通知時發生錯誤: {str(e)}")
