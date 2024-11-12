@@ -135,9 +135,25 @@ class ResultProcessor:
     async def click_checkbox_safely(self, driver, checkbox):
         """安全地點擊複選框（處理彈窗）"""
         try:
+            # 點擊複選框
             checkbox.click()
-            await asyncio.sleep(1)
-            await press_esc(driver, self.logger)
+            await asyncio.sleep(0.5)  # 給予系統時間彈出 Alert
+            
+            # 直接處理 Alert（因為我們知道會出現）
+            try:
+                alert = driver.switch_to.alert
+                alert_text = alert.text
+                self.logger.info(f"處理系統提示視窗: {alert_text}")
+                alert.accept()
+                self.logger.info("已確認系統提示")
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                self.logger.warning(f"處理 Alert 時發生異常: {str(e)}")
+                
+            # 在這個情況下，可能不需要按 ESC
+            # 如果之後發現某些情況需要，可以加回這段
+            # await press_esc(driver, self.logger)
+            
         except Exception as e:
             self.logger.error(f"點擊複選框時發生錯誤: {str(e)}")
             raise
@@ -244,4 +260,58 @@ class ResultProcessor:
             
         except Exception as e:
             self.logger.error(f"跳轉到第 {page_number} 頁時發生錯誤: {str(e)}")
+            raise
+
+    async def search_by_date_range(self, driver, start_date, end_date):
+        """按日期範圍搜尋"""
+        try:
+            # 選擇日期搜尋選項
+            date_radio = driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="date"]')
+            date_radio.click()
+            self.logger.info("已選擇日期搜尋選項")
+            
+            # 等待日期輸入欄位可見
+            start_date_input = await wait_for_element(driver, '#start_date', logger=self.logger)
+            end_date_input = await wait_for_element(driver, '#end_date', logger=self.logger)
+            
+            # 清除並輸入日期
+            start_date_input.clear()
+            start_date_input.send_keys(start_date.strftime("%Y/%m/%d"))
+            
+            end_date_input.clear()
+            end_date_input.send_keys(end_date.strftime("%Y/%m/%d"))
+            
+            # 點擊搜尋按鈕
+            search_button = driver.find_element(By.CSS_SELECTOR, 'input[type="button"][value="開始搜尋"]')
+            search_button.click()
+            
+            await asyncio.sleep(2)  # 等待搜尋結果
+            self.logger.info(f"已執行日期範圍搜尋: {start_date} 至 {end_date}")
+            
+        except Exception as e:
+            self.logger.error(f"日期範圍搜尋失敗: {str(e)}")
+            raise
+
+    async def search_by_case_number(self, driver, case_number: str):
+        """按案號搜尋"""
+        try:
+            # 選擇案號搜尋選項
+            case_radio = driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="case"]')
+            case_radio.click()
+            self.logger.info("已選擇案號搜尋選項")
+            
+            # 輸入案號
+            case_input = await wait_for_element(driver, '#case_no', logger=self.logger)
+            case_input.clear()
+            case_input.send_keys(case_number)
+            
+            # 點擊搜尋按鈕
+            search_button = driver.find_element(By.CSS_SELECTOR, 'input[type="button"][value="開始搜尋"]')
+            search_button.click()
+            
+            await asyncio.sleep(2)  # 等待搜尋結果
+            self.logger.info(f"已執行案號搜尋: {case_number}")
+            
+        except Exception as e:
+            self.logger.error(f"案號搜尋失敗: {str(e)}")
             raise
