@@ -12,3 +12,4 @@ tenacity==8.2.3
 webdriver-manager==3.9.1
 scrapling==1.0.0
 playwright==1.41.2
+pytest-asyncio==0.23.5

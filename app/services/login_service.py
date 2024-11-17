@@ -135,14 +135,19 @@ class LoginService:
                     await self.fill_login_form(driver)
 
                     # 處理驗證碼
-                    captcha_result = await self.handle_captcha(driver)
-                    if not captcha_result["success"]:
-                        self.logger.error(f"驗證碼處理失敗: {captcha_result['message']}")
-                        if attempt < self.max_retries - 1:
-                            self.logger.info("重新整理頁面準備重試...")
-                            driver.refresh()
-                            await self.wait_for_page_load(driver)
-                            continue
+                    captcha_element = driver.find_element(By.ID, "vcode")
+                    if captcha_element:
+                        captcha_text = await self.captcha_service.solve_captcha(
+                            captcha_element.screenshot_as_png
+                        )
+                        if captcha_text == "error":
+                            return {"status": "error", "message": "驗證碼解析失敗"}
+                            
+                        # 填寫驗證碼
+                        captcha_input = driver.find_element(By.NAME, "vcode")
+                        captcha_input.clear()
+                        captcha_input.send_keys(captcha_text)
+                        self.logger.info("已填寫驗證碼")
 
                     # 如果驗證碼成功，嘗試提交
                     success = await self.submit_form(driver)
@@ -394,70 +399,28 @@ class LoginService:
         except:
             return ""
         
-    async def search_bulletins(self, search_params: SearchRequest) -> dict:
+    async def search_bulletins(self, search_params: SearchRequest = None) -> dict:
         """搜尋標售公報"""
         try:
-            self.logger.info("開始搜尋標售公報")
-            if not await self.ensure_login():
-                return {"status": "error", "message": "登入失敗"}
-
             # 如果沒有提供任何搜尋參數，使用今天日期
-            if not search_params.case_number and not search_params.start_date:
-                today = date.today()
-                search_params = SearchRequest(
-                    case_number=None,
-                    start_date=today,
-                    end_date=today
-                )
-                self.logger.info("使用預設日期參數：今天")
+            if search_params is None:
+                search_params = SearchRequest.with_defaults()
             
             # 確保結束日期存在
             if search_params.start_date and not search_params.end_date:
                 search_params.end_date = search_params.start_date
-            
+
+            if not await self.ensure_login():
+                return {"status": "error", "message": "登入失敗"}
+
             # 更新 ResultProcessor 的搜尋參數
             self.result_processor.update_search_params(search_params)
-            
-            # 導航到標售公報頁面
-            await self.navigate_to_bulletin(self.driver)
-            
-            # 執行搜尋
-            if search_params.case_number:
-                await self.search_by_case_number(self.driver, search_params.case_number)
+
+            if self.use_playwright:
+                return await self.playwright_service.search_bulletins(search_params)
             else:
-                # 確保日期格式化正確
-                start_date_str = search_params.start_date.strftime('%Y/%m/%d')
-                end_date_str = search_params.end_date.strftime('%Y/%m/%d')
-                self.logger.info(f"搜尋日期範圍：{start_date_str} 至 {end_date_str}")
-                
-                await self.search_by_date_range(
-                    self.driver,
-                    start_date_str,
-                    end_date_str
-                )
-            
-            # 驗證搜尋結果
-            search_result = await self.verify_search_result(self.driver)
-            if not search_result['success']:
-                return {
-                    "status": "success", 
-                    "message": search_result['message']
-                }
-            
-            # 獲取總頁數並處理結果
-            total_pages = await self.get_total_pages(self.driver)
-            self.logger.info(f"搜尋完成，共 {total_pages} 頁")
-            
-            # 處理搜尋結果
-            if total_pages > 0:
-                success = await self.result_processor.process_results(self.driver, total_pages)
-                return {
-                    "status": "success" if success else "error",
-                    "message": "處理完成" if success else "處理失敗"
-                }
-            else:
-                return {"status": "success", "message": "沒有找到符合條件的資料"}
-            
+                return await self.selenium_search_bulletins(search_params)
+
         except Exception as e:
             self.logger.error(f"搜尋過程發生錯誤: {str(e)}")
             return {"status": "error", "message": str(e)}
@@ -662,6 +625,45 @@ class LoginService:
         radio = driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="ntidat"]')
         radio.click()
         self.logger.info("已選擇公告日期選項")
+
+    async def selenium_search_bulletins(self, search_params: SearchRequest) -> dict:
+        """使用 Selenium 執行標售公報搜尋"""
+        try:
+            driver = await self.get_driver()
+            
+            # 導航到標售公報頁面
+            await self.navigate_to_bulletin(driver)
+            
+            # 執行搜尋
+            search_result = await self.perform_search(driver, search_params)
+            if search_result["status"] == "error":
+                return search_result
+            
+            # 驗證搜尋結果
+            verify_result = await self.verify_search_result(driver)
+            if not verify_result["success"]:
+                return {
+                    "status": "error",
+                    "message": verify_result["message"]
+                }
+            
+            # 獲取總頁數
+            total_pages = await self.get_total_pages(driver)
+            self.logger.info(f"搜尋完成，共 {total_pages} 頁")
+            
+            # 處理搜尋結果
+            if total_pages > 0:
+                success = await self.result_processor.process_results(driver, total_pages)
+                return {
+                    "status": "success" if success else "error",
+                    "message": "處理完成" if success else "處理失敗"
+                }
+            else:
+                return {"status": "success", "message": "沒有找到符合條件的資料"}
+            
+        except Exception as e:
+            self.logger.error(f"搜尋過程發生錯誤: {str(e)}")
+            return {"status": "error", "message": str(e)}
 
     def __del__(self):
         """析構函數，確保資源被清理"""

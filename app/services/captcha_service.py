@@ -6,6 +6,8 @@ from PIL import Image
 from io import BytesIO
 import asyncio
 from app.core.config import settings
+from playwright.async_api import ElementHandle
+from typing import Union
 
 
 class CaptchaService:
@@ -16,10 +18,20 @@ class CaptchaService:
         self.captcha_dimensions = (200, 100)
         self.temp_dir = os.path.join(os.path.dirname(__file__), "temp")
 
-    async def solve_captcha(self, image_buffer: bytes) -> str:
+    async def solve_captcha(self, image_source: Union[bytes, ElementHandle]) -> str:
+        """
+        解析驗證碼
+        支援 Selenium 的 screenshot_as_png 和 Playwright 的 ElementHandle
+        """
         try:
             # 確保臨時目錄存在
             os.makedirs(self.temp_dir, exist_ok=True)
+
+            # 處理不同來源的圖片
+            if isinstance(image_source, ElementHandle):
+                image_buffer = await image_source.screenshot()
+            else:
+                image_buffer = image_source
 
             # 記錄原始圖片
             await self._save_original_image(image_buffer)
