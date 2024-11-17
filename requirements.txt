@@ -10,3 +10,5 @@ aiohttp==3.9.1
 Pillow==10.1.0
 tenacity==8.2.3
 webdriver-manager==3.9.1
+scrapling==1.0.0
+playwright==1.41.2

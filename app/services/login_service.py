@@ -21,13 +21,18 @@ from app.utils import (
 import asyncio
 import logging
 import re
+from app.services.playwright_login_service import PlaywrightLoginService
 
 class LoginService:
     """處理 FPG 網站的自動化登入流程。"""
 
-    def __init__(self) -> None:
-        self.browser_service = BrowserService()
-        self.captcha_service = CaptchaService()
+    def __init__(self, use_playwright: bool = False):
+        self.use_playwright = use_playwright
+        if use_playwright:
+            self.playwright_service = PlaywrightLoginService()
+        else:
+            self.browser_service = BrowserService()
+            self.captcha_service = CaptchaService()
         self.result_processor = ResultProcessor()
         self.logger = logging.getLogger(__name__)
         self.max_retries = 5
@@ -57,6 +62,14 @@ class LoginService:
 
     async def login(self) -> dict:
         """執行登入流程"""
+        if self.use_playwright:
+            return await self.playwright_service.login()
+        else:
+            # 原有的 Selenium 邏輯
+            return await self.selenium_login()
+
+    async def selenium_login(self) -> dict:
+        """執行具體的登入操作流程"""
         try:
             await clear_screenshots_folder(self.logger)  
             await ensure_screenshots_dir(self.logger)   
@@ -471,7 +484,7 @@ class LoginService:
                     search_params.end_date.strftime('%Y-%m-%d')
                 )
             
-            return {"status": "success", "message": "搜尋完��"}
+            return {"status": "success", "message": "搜尋完成"}
         except Exception as e:
             return {"status": "error", "message": f"搜尋失敗: {str(e)}"}
 
