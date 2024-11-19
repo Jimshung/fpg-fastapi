@@ -53,6 +53,7 @@ jobs:
           pip install --upgrade pip
           pip install psutil
           pip install -r requirements.txt
+          playwright install  # 安裝 Playwright 瀏覽器
 
       - name: Run automation script
         id: automation
@@ -67,7 +68,7 @@ jobs:
           # 執行腳本並收集完整日誌
           python -m app.scripts.run_automation 2>&1 | tee automation.log
 
-          # 計算執行時間（修改這部分）
+          # 計算執行時間
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
           echo "EXECUTION_TIME=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_ENV"

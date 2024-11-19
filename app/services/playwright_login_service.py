@@ -126,14 +126,124 @@ class PlaywrightLoginService:
 
     async def search_by_date_range(self, start_date, end_date):
         """使用日期範圍搜尋"""
-        # 使用智能點擊選擇日期搜尋選項
-        await self.smart_click(self.page, 'input[type="radio"][value="radio2"]')
-        # 使用智能填寫輸入日期
-        await self.smart_fill(self.page, '#date_f', start_date.strftime('%Y/%m/%d'))
-        await self.smart_fill(self.page, '#date_e', end_date.strftime('%Y/%m/%d'))
-        # 使用智能點擊搜尋按鈕
-        await self.smart_click(self.page, 'input[type="button"][value="開始搜尋"]')
-        await self.page.wait_for_load_state('networkidle')
+        try:
+            # 選擇日期搜尋選項
+            await self.smart_click(self.page, 'input[type="radio"][value="radio2"]')
+            
+            # 等待日期輸入欄位和按鈕出現
+            await self.page.wait_for_selector('#date_f')
+            await self.page.wait_for_selector('#button3')
+            await self.page.wait_for_selector('#button4')
+            
+            # 選擇開始日期
+            await self.select_date_in_popup('button3', start_date)
+            
+            # 選擇結束日期
+            await self.select_date_in_popup('button4', end_date)
+            
+            # 選擇公告日期選項
+            await self.smart_click(self.page, 'input[type="radio"][value="ntidat"]')
+            
+            # 點擊搜尋按鈕
+            await self.smart_click(self.page, 'input[type="button"][value="開始搜尋"]')
+            await self.page.wait_for_load_state('networkidle')
+            
+        except Exception as e:
+            self.logger.error(f"日期範圍搜尋失敗: {str(e)}")
+            raise
+
+    async def select_date_in_popup(self, button_id: str, target_date: str):
+        """在彈出視窗中選擇日期"""
+        try:
+            # 點擊日期選擇按鈕
+            await self.page.click(f'#{button_id}')
+            
+            # 等待新視窗打開
+            popup_page = await self.page.wait_for_event('popup')
+            
+            # 等待表格載入
+            await popup_page.wait_for_selector('table')
+            
+            # 將目標日期轉換為正確的格式 (YYYY/MM/DD)
+            formatted_date = target_date.strftime('%Y/%m/%d') if hasattr(target_date, 'strftime') else target_date.replace('-', '/')
+            
+            # 使用與 Selenium 相似的 JavaScript 邏輯，但針對 Playwright 優化
+            success = await popup_page.evaluate('''
+                (targetDate) => {
+                    // 找到所有日期連結
+                    const links = Array.from(document.querySelectorAll('table tr td a'));
+                    
+                    // 構建預期的 onclick 值（支援兩種可能的格式）
+                    const expectedValues = [
+                        `self.opener.document.FJ202C1PA01.date_f.value='${targetDate}'`,
+                        `self.opener.document.FJ202C1PA01.date_e.value='${targetDate}'`
+                    ];
+                    
+                    // 查找匹配的連結
+                    const targetLink = links.find(link => {
+                        const onclick = link.getAttribute('onclick');
+                        return onclick && expectedValues.some(value => onclick.includes(value));
+                    });
+                    
+                    if (targetLink) {
+                        // 使用 dispatchEvent 來觸發點擊事件
+                        const clickEvent = new MouseEvent('click', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        });
+                        targetLink.dispatchEvent(clickEvent);
+                        
+                        // 同時也執行 onclick 事件中的代碼
+                        const onclickCode = targetLink.getAttribute('onclick');
+                        if (onclickCode) {
+                            try {
+                                eval(onclickCode);
+                            } catch (e) {
+                                console.error('Error executing onclick:', e);
+                            }
+                        }
+                        
+                        return true;
+                    }
+                    
+                    // 如果沒找到，返回可用的日期資訊供調試
+                    return {
+                        success: false,
+                        availableDates: links.map(link => ({
+                            text: link.textContent.trim(),
+                            onclick: link.getAttribute('onclick')
+                        }))
+                    };
+                }
+            ''', formatted_date)
+            
+            # 處理結果
+            if isinstance(success, dict):  # 如果返回調試信息
+                self.logger.error(f"可用的日期: {success['availableDates']}")
+                raise Exception(f"在日期選擇器中未找到日期: {formatted_date}")
+            elif not success:
+                raise Exception(f"日期選擇失敗: {formatted_date}")
+            
+            # 等待彈出視窗關閉（增加超時時間和錯誤處理）
+            try:
+                await popup_page.wait_for_event('close', timeout=5000)
+            except Exception as e:
+                self.logger.warning(f"等待視窗關閉超時: {str(e)}")
+                # 嘗試手動關閉視窗
+                await popup_page.close()
+            
+            self.logger.info(f"成功選擇日期: {formatted_date}")
+            
+        except Exception as e:
+            self.logger.error(f"選擇日期時發生錯誤: {str(e)}")
+            # 保存錯誤截圖和更多診斷信息
+            if 'popup_page' in locals():
+                await popup_page.screenshot(path=f"screenshots/error_popup_{formatted_date}.png")
+                html = await popup_page.content()
+                self.logger.error(f"彈出視窗 HTML: {html[:500]}...")  # 只記錄前500字符
+            await self.page.screenshot(path=f"screenshots/error_main_{formatted_date}.png")
+            raise
 
     async def cleanup(self):
         """清理資源"""
