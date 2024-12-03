@@ -266,42 +266,58 @@ class ResultProcessor:
         """按日期範圍搜尋"""
         try:
             # 選擇日期搜尋選項
-            date_radio = driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="date"]')
-            date_radio.click()
+            radio = driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="radio2"]')
+            radio.click()
             self.logger.info("已選擇日期搜尋選項")
             
-            # 等待日期輸入欄位可見
-            start_date_input = await wait_for_element(driver, '#start_date', logger=self.logger)
-            end_date_input = await wait_for_element(driver, '#end_date', logger=self.logger)
+            # 使用 JavaScript 直接設定日期值
+            driver.execute_script(f"""
+                document.getElementById('date_f').value = '{start_date.strftime("%Y/%m/%d")}';
+                document.getElementById('date_e').value = '{end_date.strftime("%Y/%m/%d")}';
+            """)
+            self.logger.info(f"已設定日期範圍: {start_date} 至 {end_date}")
             
-            # 清除並輸入日期
-            start_date_input.clear()
-            start_date_input.send_keys(start_date.strftime("%Y/%m/%d"))
+            # 驗證選擇的日期
+            await self.verify_selected_dates(driver, start_date.strftime("%Y/%m/%d"), end_date.strftime("%Y/%m/%d"))
             
-            end_date_input.clear()
-            end_date_input.send_keys(end_date.strftime("%Y/%m/%d"))
+            # 選擇公告日期選項
+            announcement_radio = driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="ntidat"]')
+            announcement_radio.click()
+            self.logger.info("已選擇公告日期選項")
             
             # 點擊搜尋按鈕
             search_button = driver.find_element(By.CSS_SELECTOR, 'input[type="button"][value="開始搜尋"]')
             search_button.click()
             
-            await asyncio.sleep(2)  # 等待搜尋結果
-            self.logger.info(f"已執行日期範圍搜尋: {start_date} 至 {end_date}")
+            # 等待搜尋結果並驗證
+            await wait_for_element(driver, 'table', timeout=10, logger=self.logger)
+            await self.verify_search_result(driver)
+            self.logger.info("已執行日期範圍搜尋")
             
         except Exception as e:
             self.logger.error(f"日期範圍搜尋失敗: {str(e)}")
             raise
 
+    async def verify_selected_dates(self, driver, start_date: str, end_date: str):
+        """驗證選擇的日期是否正確"""
+        start_value = driver.find_element(By.ID, "date_f").get_attribute("value")
+        end_value = driver.find_element(By.ID, "date_e").get_attribute("value")
+        
+        self.logger.info(f"日期範圍選擇完成: {start_value} 至 {end_value}")
+        
+        if start_value != start_date or end_value != end_date:
+            self.logger.warning("選擇的日期可能不正確，請檢查")
+
     async def search_by_case_number(self, driver, case_number: str):
         """按案號搜尋"""
         try:
-            # 選擇案號搜尋選項
-            case_radio = driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="case"]')
+            # 修正選擇器為正確的 value
+            case_radio = driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="radio1"]')
             case_radio.click()
             self.logger.info("已選擇案號搜尋選項")
             
             # 輸入案號
-            case_input = await wait_for_element(driver, '#case_no', logger=self.logger)
+            case_input = driver.find_element(By.NAME, "tndsalno")  # 修正為正確的 name 屬性
             case_input.clear()
             case_input.send_keys(case_number)
             
@@ -309,9 +325,48 @@ class ResultProcessor:
             search_button = driver.find_element(By.CSS_SELECTOR, 'input[type="button"][value="開始搜尋"]')
             search_button.click()
             
-            await asyncio.sleep(2)  # 等待搜尋結果
+            # 等待搜尋結果並驗證
+            await wait_for_element(driver, 'table', timeout=10, logger=self.logger)
+            await self.verify_search_result(driver)
             self.logger.info(f"已執行案號搜尋: {case_number}")
             
         except Exception as e:
             self.logger.error(f"案號搜尋失敗: {str(e)}")
             raise
+
+    async def verify_search_result(self, driver) -> dict:
+        """驗證搜尋結果"""
+        self.logger.info("確認搜尋結果...")
+        try:
+            # 檢查成功標題
+            success_title = await self.get_element_text(
+                driver,
+                'div[align="center"] font[color="#FFFFFF"] b'
+            )
+            if success_title == '標售公報查詢清單':
+                self.logger.info("成功找到標售公報查詢清單頁面")
+                return {"success": True, "message": "查詢成功"}
+
+            # 檢查錯誤訊息
+            error_message = await self.get_element_text(
+                driver,
+                'td[bgcolor="#FF9933"] font[color="#FFFFFF"]'
+            )
+            if error_message:
+                self.logger.warning(f"搜尋結果異常：{error_message}")
+                return {"success": False, "message": error_message}
+
+            raise Exception("頁面內容不符合預期")
+            
+        except Exception as e:
+            self.logger.error(f"驗證搜尋結果時發生錯誤: {str(e)}")
+            await take_screenshot(driver, "搜尋結果驗證失敗", self.logger)
+            raise
+
+    async def get_element_text(self, driver, selector: str) -> str:
+        """獲取元素文字內容"""
+        try:
+            element = driver.find_element(By.CSS_SELECTOR, selector)
+            return element.text.strip()
+        except:
+            return ""

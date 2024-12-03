@@ -412,7 +412,7 @@ class LoginService:
             if search_params.case_number:
                 await self.search_by_case_number(self.driver, search_params.case_number)
             else:
-                # 確保日期格式化正確
+                # 將日期格式從 YYYY-MM-DD 轉換為 YYYY/MM/DD
                 start_date_str = search_params.start_date.strftime('%Y/%m/%d')
                 end_date_str = search_params.end_date.strftime('%Y/%m/%d')
                 self.logger.info(f"搜尋日期範圍：{start_date_str} 至 {end_date_str}")
@@ -471,7 +471,7 @@ class LoginService:
                     search_params.end_date.strftime('%Y-%m-%d')
                 )
             
-            return {"status": "success", "message": "搜尋完��"}
+            return {"status": "success", "message": "搜尋完成"}
         except Exception as e:
             return {"status": "error", "message": f"搜尋失敗: {str(e)}"}
 
@@ -536,11 +536,18 @@ class LoginService:
             # 確保日期輸入欄位可見
             await self.ensure_date_inputs_visible(driver)
             
-            # 選擇開始日期
-            await self.select_date(driver, '#button3', start_date)
+            # 使用 JavaScript 直接設定日期值
+            driver.execute_script(f"""
+                document.getElementById('date_f').value = '{start_date}';
+                document.getElementById('date_e').value = '{end_date}';
+            """)
+            self.logger.info(f"已設定日期範圍: {start_date} 至 {end_date}")
             
-            # 選擇結束日期
-            await self.select_date(driver, '#button4', end_date)
+            # 註解掉原本的日期選擇按鈕操作
+            # # 選擇開始日期
+            # await self.select_date(driver, '#button3', start_date)
+            # # 選擇結束日期
+            # await self.select_date(driver, '#button4', end_date)
             
             # 驗證選擇的日期
             await self.verify_selected_dates(driver, start_date, end_date)
