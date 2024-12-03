@@ -9,6 +9,20 @@ import os
 from datetime import datetime
 import re
 import asyncio
+import logging
+from .utils import take_screenshot
+
+logger = logging.getLogger(__name__)
+
+SEARCH_RESULT_SELECTORS = {
+    'SUCCESS_TITLE': 'div[align="center"] font[color="#FFFFFF"] b',
+    'ERROR_MESSAGE': 'td[bgcolor="#FF9933"] font[color="#FFFFFF"]'
+}
+
+MESSAGES = {
+    'SUCCESS_TITLE': '標售公報查詢清單',
+    'NOT_FOUND': '找不到您輸入的案號'
+}
 
 async def click_element_by_text(driver, selector: str, text: str, logger):
     """
@@ -128,4 +142,50 @@ async def press_esc(driver, logger):
     except Exception as e:
         logger.error(f"按下 ESC 鍵時發生錯誤: {str(e)}")
         raise
+
+async def verify_search_result(driver) -> dict:
+    """驗證搜尋結果"""
+    logger.info("確認搜尋結果...")
+    try:
+        # 檢查成功標題
+        success_title = await get_element_text(
+            driver,
+            SEARCH_RESULT_SELECTORS['SUCCESS_TITLE']
+        )
+        if success_title == MESSAGES['SUCCESS_TITLE']:
+            logger.info("成功找到標售公報查詢清單頁面")
+            return {"success": True, "message": "查詢成功"}
+
+        # 檢查錯誤訊息
+        error_message = await get_element_text(
+            driver,
+            SEARCH_RESULT_SELECTORS['ERROR_MESSAGE']
+        )
+        if error_message:
+            if MESSAGES['NOT_FOUND'] in error_message:
+                logger.info(f"查詢未找到結果：{error_message}")
+            else:
+                logger.warning(f"搜尋結果異常：{error_message}")
+            return {"success": False, "message": error_message}
+
+        raise Exception("頁面內容不符合預期")
+        
+    except Exception as e:
+        logger.error(f"驗證搜尋結果時發生錯誤: {str(e)}")
+        await take_screenshot(driver, "搜尋結果驗證失敗", logger)
+        raise
+
+async def get_element_text(driver, selector: str) -> str:
+    """獲取元素文字內容"""
+    try:
+        element = driver.find_element(By.CSS_SELECTOR, selector)
+        return element.text.strip()
+    except:
+        return ""
+
+async def wait_for_page_load(driver, timeout: int = 10) -> None:
+    """等待頁面載入完成"""
+    WebDriverWait(driver, timeout).until(
+        lambda d: d.execute_script('return document.readyState') == 'complete'
+    )
 

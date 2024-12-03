@@ -9,6 +9,7 @@ from app.utils import (
     wait_for_element,
     handle_error
 )
+from app.utils.selenium_utils import verify_search_result
 
 class ResultProcessor:
     def __init__(self):
@@ -23,6 +24,10 @@ class ResultProcessor:
     async def process_results(self, driver, total_pages: int) -> bool:
         """處理搜尋結果"""
         try:
+            search_result = await verify_search_result(driver)
+            if not search_result['success']:
+                return False
+            
             if total_pages > 1:
                 return await self.handle_multi_page_results(driver, total_pages)
             else:
@@ -137,9 +142,9 @@ class ResultProcessor:
         try:
             # 點擊複選框
             checkbox.click()
-            await asyncio.sleep(0.5)  # 給予系統時間彈出 Alert
+            await asyncio.sleep(0.5)
             
-            # 直接處理 Alert（因為我們知道會出現）
+            # 處理 Alert
             try:
                 alert = driver.switch_to.alert
                 alert_text = alert.text
@@ -149,9 +154,10 @@ class ResultProcessor:
                 await asyncio.sleep(0.5)
             except Exception as e:
                 self.logger.warning(f"處理 Alert 時發生異常: {str(e)}")
-                
-            # 在這個情況下，可能不需要按 ESC
-            # 如果之後發現某些情況需要，可以加回這段
+            
+            # 註解原因：目前使用 alert.accept() 處理彈窗，不需要按 ESC
+            # 如果之後發現某些情況下 alert.accept() 無法正確處理彈窗，
+            # 可以取消註解下面這行
             # await press_esc(driver, self.logger)
             
         except Exception as e:
@@ -333,40 +339,3 @@ class ResultProcessor:
         except Exception as e:
             self.logger.error(f"案號搜尋失敗: {str(e)}")
             raise
-
-    async def verify_search_result(self, driver) -> dict:
-        """驗證搜尋結果"""
-        self.logger.info("確認搜尋結果...")
-        try:
-            # 檢查成功標題
-            success_title = await self.get_element_text(
-                driver,
-                'div[align="center"] font[color="#FFFFFF"] b'
-            )
-            if success_title == '標售公報查詢清單':
-                self.logger.info("成功找到標售公報查詢清單頁面")
-                return {"success": True, "message": "查詢成功"}
-
-            # 檢查錯誤訊息
-            error_message = await self.get_element_text(
-                driver,
-                'td[bgcolor="#FF9933"] font[color="#FFFFFF"]'
-            )
-            if error_message:
-                self.logger.warning(f"搜尋結果異常：{error_message}")
-                return {"success": False, "message": error_message}
-
-            raise Exception("頁面內容不符合預期")
-            
-        except Exception as e:
-            self.logger.error(f"驗證搜尋結果時發生錯誤: {str(e)}")
-            await take_screenshot(driver, "搜尋結果驗證失敗", self.logger)
-            raise
-
-    async def get_element_text(self, driver, selector: str) -> str:
-        """獲取元素文字內容"""
-        try:
-            element = driver.find_element(By.CSS_SELECTOR, selector)
-            return element.text.strip()
-        except:
-            return ""

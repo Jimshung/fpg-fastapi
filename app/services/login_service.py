@@ -1,5 +1,5 @@
 """FPG 自動化登入服務模組。"""
-from datetime import date
+from datetime import date, datetime
 from app.models.schema import SearchRequest
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -17,6 +17,11 @@ from app.utils import (
     handle_error,
     clear_screenshots_folder,
     ensure_screenshots_dir
+)
+from app.utils.selenium_utils import (
+    verify_search_result, 
+    get_element_text,
+    wait_for_page_load
 )
 import asyncio
 import logging
@@ -291,7 +296,7 @@ class LoginService:
     async def get_total_pages(self, driver) -> int:
         """獲取搜尋結果的總頁數"""
         try:
-            search_result = await self.verify_search_result(driver)
+            search_result = await verify_search_result(driver)
             if not search_result['success']:
                 return 0
 
@@ -341,46 +346,6 @@ class LoginService:
         """
         return driver.execute_script(script)
         
-    async def verify_search_result(self, driver) -> dict:
-        """驗證搜尋結果"""
-        self.logger.info("確認搜尋結果...")
-        try:
-            # 檢查成功標題
-            success_title = await self.get_element_text(
-                driver,
-                self.SEARCH_RESULT_SELECTORS['SUCCESS_TITLE']
-            )
-            if success_title == self.MESSAGES['SUCCESS_TITLE']:
-                self.logger.info("成功找到標售公報查詢清單頁面")
-                return {"success": True, "message": "查詢成功"}
-
-            # 檢查錯誤訊息
-            error_message = await self.get_element_text(
-                driver,
-                self.SEARCH_RESULT_SELECTORS['ERROR_MESSAGE']
-            )
-            if error_message:
-                if self.MESSAGES['NOT_FOUND'] in error_message:
-                    self.logger.info(f"查詢未找到結果：{error_message}")
-                else:
-                    self.logger.warning(f"搜尋結果異常：{error_message}")
-                return {"success": False, "message": error_message}
-
-            raise Exception("頁面內容不符合預期")
-            
-        except Exception as e:
-            self.logger.error(f"驗證搜尋結果時發生錯誤: {str(e)}")
-            await take_screenshot(driver, "搜尋結果驗證失敗", self.logger)
-            raise
-
-    async def get_element_text(self, driver, selector: str) -> str:
-        """獲取元素文字內容"""
-        try:
-            element = driver.find_element(By.CSS_SELECTOR, selector)
-            return element.text.strip()
-        except:
-            return ""
-        
     async def search_bulletins(self, search_params: SearchRequest) -> dict:
         """搜尋標售公報"""
         try:
@@ -390,13 +355,14 @@ class LoginService:
 
             # 如果沒有提供任何搜尋參數，使用今天日期
             if not search_params.case_number and not search_params.start_date:
-                today = date.today()
+                today_str = get_today_date()  # 使用 utils 中的函數
+                today = datetime.strptime(today_str, "%Y/%m/%d").date()
                 search_params = SearchRequest(
                     case_number=None,
                     start_date=today,
                     end_date=today
                 )
-                self.logger.info("使用預設日期參數：今天")
+                self.logger.info(f"使用預設日期參數：{today_str}")
             
             # 確保結束日期存在
             if search_params.start_date and not search_params.end_date:
@@ -424,7 +390,7 @@ class LoginService:
                 )
             
             # 驗證搜尋結果
-            search_result = await self.verify_search_result(self.driver)
+            search_result = await verify_search_result(self.driver)
             if not search_result['success']:
                 return {
                     "status": "success", 
