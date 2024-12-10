@@ -35,6 +35,50 @@ which python  # 應顯示 fpg_venv 中的 Python 路徑
 pip install -r requirements.txt
 ```
 
+### 3. Python 環境重置（如遇到問題時使用）
+
+如果遇到 Python 相關的問題（如 segmentation fault），可以嘗試以下步驟：
+
+```bash
+# 停用當前的虛擬環境
+deactivate
+
+# 移除 pyenv 的 Python 版本
+pyenv uninstall 3.9.18
+
+# 確保使用 Homebrew 的 Python
+brew unlink python@3.9 && brew link python@3.9 --force
+
+# 移除現有的虛擬環境
+rm -rf fpg_venv
+
+# 使用 Homebrew 的 Python 創建新的虛擬環境
+/opt/homebrew/bin/python3.9 -m venv fpg_venv
+
+# 啟動虛擬環境
+source fpg_venv/bin/activate
+
+# 升級 pip
+python -m pip install --upgrade pip
+
+# 安裝依賴
+pip install -r requirements.txt
+```
+
+### 4. API 服務重啟流程
+
+```bash
+# 1. 檢查當前運行的 uvicorn 進程
+ps aux | grep uvicorn
+
+# 2. 停止現有的 uvicorn 進程（如果有的話）
+# 假設 PID 為 1234
+kill -9 1234
+
+# 3. 重新啟動 API 服務
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
 ## 執行方式
 
 ### 本地執行

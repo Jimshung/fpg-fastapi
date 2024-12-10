@@ -81,13 +81,13 @@ class LoginService:
                 return {"status": "error", "message": "Driver 初始化失敗"}
 
             # 嘗試訪問頁面
-            self.logger.info(f"正在訪問登入頁面: {settings.LOGIN_URL}")
+            self.logger.info(f"正在訪問 FPG 登入頁面: {settings.LOGIN_URL}")
             try:
-                driver.get(settings.LOGIN_URL)
-                self.logger.info("成功訪問登入頁面")
+                driver.get(settings.LOGIN_URL)  # 使用 FPG 的登入 URL
+                self.logger.info("成功訪問 FPG 登入頁面")
             except Exception as e:
-                self.logger.error(f"訪問登入頁面失敗: {str(e)}")
-                return {"status": "error", "message": f"訪問登入頁面失敗: {str(e)}"}
+                self.logger.error(f"訪問 FPG 登入頁面失敗: {str(e)}")
+                return {"status": "error", "message": f"訪問 FPG 登入頁面失敗: {str(e)}"}
 
             login_result = await self.perform_login(driver)
             self.logger.info(f"登入結果: {login_result}")
@@ -117,8 +117,7 @@ class LoginService:
     async def perform_login(self, driver) -> dict:
         """執行具體的登入操作流程"""
         try:
-            self.logger.info("正在導航到登入頁面...")
-            driver.get(settings.LOGIN_URL)
+            self.logger.info("正在確認 FPG 登入頁面...")
             await self.wait_for_page_load(driver)
 
             for attempt in range(self.max_retries):

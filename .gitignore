@@ -63,5 +63,8 @@ tests/http/*.http
 tests/http/*.rest
 tests/http/*.private.env.json
 
-# Python version
+
+# 專案特定檔案
 .python-version
+pyvenv.cfg
+wsdum.mp
