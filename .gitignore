@@ -62,3 +62,9 @@ curl_commands_*.txt
 tests/http/*.http
 tests/http/*.rest
 tests/http/*.private.env.json
+
+
+# 專案特定檔案
+.python-version
+pyvenv.cfg
+wsdum.mp
