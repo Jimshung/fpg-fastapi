@@ -62,3 +62,6 @@ curl_commands_*.txt
 tests/http/*.http
 tests/http/*.rest
 tests/http/*.private.env.json
+
+# Python version
+.python-version
