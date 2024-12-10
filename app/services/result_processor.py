@@ -297,7 +297,9 @@ class ResultProcessor:
             
             # 等待搜尋結果並驗證
             await wait_for_element(driver, 'table', timeout=10, logger=self.logger)
-            await self.verify_search_result(driver)
+            search_result = await verify_search_result(driver)
+            if not search_result['success']:
+                raise Exception(search_result['message'])
             self.logger.info("已執行日期範圍搜尋")
             
         except Exception as e:
@@ -333,7 +335,9 @@ class ResultProcessor:
             
             # 等待搜尋結果並驗證
             await wait_for_element(driver, 'table', timeout=10, logger=self.logger)
-            await self.verify_search_result(driver)
+            search_result = await verify_search_result(driver)
+            if not search_result['success']:
+                raise Exception(search_result['message'])
             self.logger.info(f"已執行案號搜尋: {case_number}")
             
         except Exception as e:
