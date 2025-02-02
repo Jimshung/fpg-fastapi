@@ -1,0 +1,10 @@
+---
+description: Error handling must:
+globs: 
+---
+- Use ErrorAnalyzer for error tracking
+- Implement proper logging with loguru
+- Take screenshots on failures
+- Send Telegram notifications on errors
+- Use try-except with specific exceptions
+- Clean up resources in finally blocks

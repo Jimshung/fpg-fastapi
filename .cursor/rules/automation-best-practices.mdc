@@ -1,0 +1,11 @@
+---
+description: Automation code must:
+globs: 
+---
+- Use BrowserService for Selenium operations
+- Implement proper wait strategies
+- Handle captcha with CaptchaService
+- Use LoginService for authentication
+- Implement ResultProcessor for data handling
+- Follow the existing retry mechanisms
+- Use screenshot functionality for debugging

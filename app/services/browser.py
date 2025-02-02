@@ -4,6 +4,7 @@
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from app.core.config import settings
 import logging
 import platform
@@ -15,14 +16,20 @@ class BrowserService:
         self.driver = None
         self.logger = logging.getLogger(__name__)
 
-    def init_driver(self):
+    def init_driver(self, headless: bool = None):
+        """
+        初始化 Chrome WebDriver
+        Args:
+            headless: 可選參數，覆蓋配置文件中的設定
+        """
         try:
             # 記錄環境信息
-            self.logger.info(f"運行環境: {'GitHub Actions' if os.getenv('GITHUB_ACTIONS') else 'Local'}")
+            is_github_actions = bool(os.getenv('GITHUB_ACTIONS'))
+            self.logger.info(f"運行環境: {'GitHub Actions' if is_github_actions else 'Local'}")
             self.logger.info(f"操作系統: {platform.system()} {platform.version()}")
             self.logger.info(f"Python 版本: {platform.python_version()}")
             
-            options = webdriver.ChromeOptions()
+            options = Options()
             
             # 基本設置
             options.add_argument('--no-sandbox')
@@ -49,11 +56,11 @@ class BrowserService:
             for arg in options.arguments:
                 self.logger.info(f"  - {arg}")
             
-            # 根據設定決定是否使用 headless 模式
-            if settings.HEADLESS_MODE:
-                self.logger.info(f"使用無頭模式運行瀏覽器 (原因: {'CI 環境' if os.getenv('GITHUB_ACTIONS') else '配置設定'})")
+            # 根據環境和設定決定是否使用 headless 模式
+            use_headless = headless if headless is not None else (settings.HEADLESS_MODE or is_github_actions)
+            if use_headless:
+                self.logger.info(f"使用無頭模式運行瀏覽器 (原因: {'CI 環境' if is_github_actions else '配置設定'})")
                 options.add_argument('--headless=new')
-                options.add_argument('--disable-gpu')
             else:
                 self.logger.info("使用有頭模式運行瀏覽器")
             
@@ -105,6 +112,7 @@ class BrowserService:
             raise
 
     def close_driver(self):
+        """關閉 WebDriver"""
         if self.driver:
             try:
                 session_id = self.driver.session_id

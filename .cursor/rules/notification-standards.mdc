@@ -1,0 +1,10 @@
+---
+description: Notification requirements:
+globs: 
+---
+- Use TelegramNotifier for alerts
+- Format messages with proper emoji
+- Include execution metrics
+- Send screenshots when needed
+- Handle different notification levels
+- Implement proper error reporting
