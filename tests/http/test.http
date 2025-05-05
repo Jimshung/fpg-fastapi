@@ -1,0 +1,37 @@
+### FastAPI API 測試
+
+### 健康檢查
+GET http://localhost:8000/health
+
+### 執行登入
+POST http://localhost:8000/api/v1/login
+Content-Type: application/json
+
+{
+  "username": "your_username",
+  "password": "your_password"
+}
+
+### 搜尋標售公報
+POST http://localhost:8000/api/v1/search
+Content-Type: application/json
+
+{
+  "start_date": "2025-05-01",
+  "end_date": "2025-05-06"
+}
+
+### 搜尋今天的標售公報
+GET http://localhost:8000
+
+### 獲取標售案件列表
+GET http://localhost:8000/api/v1/tender/list
+
+### 獲取特定標售案件詳細資訊
+GET http://localhost:8000/api/v1/tender/detail/FPG-2024-001
+
+### 使用說明：
+1. 在 VSCode 中安裝 'REST Client' 擴充功能
+2. 在每個請求上方會看到 'Send Request' 的連結
+3. 點擊 'Send Request' 即可發送請求並查看結果
+4. 確保 FastAPI 服務正在運行 (uvicorn app.main:app --reload)

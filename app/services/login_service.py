@@ -373,20 +373,16 @@ class LoginService:
             # 導航到標售公報頁面
             await self.navigate_to_bulletin(self.driver)
             
-            # 執行搜尋
-            if search_params.case_number:
-                await self.search_by_case_number(self.driver, search_params.case_number)
-            else:
-                # 將日期格式從 YYYY-MM-DD 轉換為 YYYY/MM/DD
-                start_date_str = search_params.start_date.strftime('%Y/%m/%d')
-                end_date_str = search_params.end_date.strftime('%Y/%m/%d')
-                self.logger.info(f"搜尋日期範圍：{start_date_str} 至 {end_date_str}")
-                
-                await self.search_by_date_range(
-                    self.driver,
-                    start_date_str,
-                    end_date_str
-                )
+            # 總是使用日期範圍搜尋
+            start_date_str = search_params.start_date.strftime('%Y/%m/%d')
+            end_date_str = search_params.end_date.strftime('%Y/%m/%d')
+            self.logger.info(f"搜尋日期範圍：{start_date_str} 至 {end_date_str}")
+            
+            await self.search_by_date_range(
+                self.driver,
+                start_date_str,
+                end_date_str
+            )
             
             # 驗證搜尋結果
             search_result = await verify_search_result(self.driver)

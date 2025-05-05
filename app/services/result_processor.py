@@ -236,8 +236,12 @@ class ResultProcessor:
                     self.search_params.end_date
                 )
             
-            # 跳轉到指定頁面
-            await self.go_to_specific_page(driver, page_number)
+            # 使用JavaScript直接跳转到指定页面
+            driver.execute_script(
+                f"goPage(document.FJ202C1PA02,'all','ntidat','all','T','{page_number}','35')"
+            )
+            await asyncio.sleep(2)
+            await wait_for_element(driver, 'table', logger=self.logger)
             
         except Exception as e:
             self.logger.error(f"重新搜索並跳轉到第 {page_number} 頁時發生錯誤: {str(e)}")
