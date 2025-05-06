@@ -1,7 +1,7 @@
 name: FPG 自動化流程 (Python)
 on:
   schedule:
-    - cron: '30 0 * * 1-5'
+    - cron: '0 0 * * 1-5'
   workflow_dispatch:
 
 jobs:
