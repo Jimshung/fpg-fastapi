@@ -8,6 +8,7 @@
 - 📊 資料擷取和處理
 - 📱 Telegram 通知整合
 - 🔄 GitHub Actions 自動執行
+- 📝 REST Client API 測試支援
 
 ## 環境需求
 
@@ -43,7 +44,27 @@ which python  # 應顯示 fpg_venv 中的 Python 路徑
 pip install -r requirements.txt
 ```
 
-### 3. Python 環境重置（如遇到問題時使用）
+### 3. ChromeDriver 設定 (本機測試用)
+
+確保 Chrome 瀏覽器和 ChromeDriver 版本相匹配：
+
+```bash
+# 檢查 Chrome 和 ChromeDriver 版本
+google-chrome --version
+chromedriver --version
+
+# 如果版本不匹配，更新 ChromeDriver
+brew upgrade chromedriver
+
+# 如果更新後仍有問題，可以重新安裝
+brew uninstall chromedriver && brew install chromedriver
+
+# 確認 ChromeDriver 路徑和權限
+ls -l /opt/homebrew/bin/chromedriver
+chmod +x /opt/homebrew/bin/chromedriver
+```
+
+### 4. Python 環境重置（如遇到問題時使用）
 
 如果遇到 Python 相關的問題（如 segmentation fault），可以嘗試以下步驟：
 
@@ -73,7 +94,20 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. API 服務重啟流程
+### 5. 疑難排解
+
+如果遇到自動化腳本執行問題，可以嘗試以下步驟：
+
+```bash
+# 1. 清除 Python 快取文件
+find . -name "*.pyc" -delete
+find . -name "__pycache__" -type d -exec rm -r {} +
+
+# 2. 使用 PYTHONUNBUFFERED 執行腳本（可以看到即時日誌輸出）
+PYTHONUNBUFFERED=1 python -m app.scripts.run_automation
+```
+
+### 6. API 服務重啟流程
 
 ```bash
 # 1. 檢查當前運行的 uvicorn 進程
@@ -97,17 +131,34 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 python -m app.scripts.run_automation
 ```
 
-2. **API 服務**（需要時）:
+2. **API 服務**（開發測試用）:
 
 ```bash
+# 啟動 FastAPI 服務
 uvicorn app.main:app --reload
+
+# 生成最新的 API 測試檔案
+python scripts/generate_rest_client.py
 ```
+
+### API 測試
+
+本專案使用 VSCode REST Client 擴充功能進行 API 測試：
+
+1. 在 VSCode 中安裝 "REST Client" 擴充功能
+2. 啟動 FastAPI 服務
+3. 執行 `python scripts/generate_rest_client.py` 生成最新的 API 測試檔案
+4. 打開 `tests/http/test.http`
+5. 點擊每個請求上方的 "Send Request" 進行測試
 
 可用的 API 端點：
 
+- GET `/health`: 健康檢查
 - POST `/api/v1/login`: 執行登入
 - POST `/api/v1/search`: 搜尋標售公報
 - GET `/api/v1/today`: 搜尋今天的標售公報
+- GET `/api/v1/tender/list`: 獲取標售案件列表
+- GET `/api/v1/tender/detail/{tender_no}`: 獲取特定標售案件詳細資訊
 
 ### GitHub Actions
 
@@ -132,3 +183,4 @@ uvicorn app.main:app --reload
 - 執行前請確保虛擬環境已啟動
 - 確保所有環境變數都已正確設置
 - 檢查 Chrome 和 ChromeDriver 版本相符
+- API 測試前確保 FastAPI 服務正在運行

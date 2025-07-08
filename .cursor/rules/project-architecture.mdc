@@ -1,0 +1,10 @@
+---
+description: Follow these architectural patterns:
+globs: 
+---
+- Use FastAPI for API layer (app/api/)
+- Place core configurations in app/core/
+- Keep services in app/services/
+- Use models for data validation (app/models/)
+- Implement utilities in app/utils/
+- Store automation scripts in app/scripts/

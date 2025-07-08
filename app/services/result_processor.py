@@ -11,6 +11,7 @@ from app.utils import (
 )
 from app.utils.selenium_utils import verify_search_result
 
+
 class ResultProcessor:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ class ResultProcessor:
             search_result = await verify_search_result(driver)
             if not search_result['success']:
                 return False
-            
+
             if total_pages > 1:
                 return await self.handle_multi_page_results(driver, total_pages)
             else:
@@ -44,7 +45,7 @@ class ResultProcessor:
                 self.logger.info("未找到複選框，準備點擊回主畫面")
                 await self.click_back_to_main_button(driver, mode='search')
                 return True
-            
+
             self.logger.info(f"找到 {len(checkboxes)} 個複選框，開始處理")
             await self.select_all_checkboxes(driver, checkboxes)
             await self.click_save_button(driver)
@@ -58,13 +59,13 @@ class ResultProcessor:
         current_page = 1
         while current_page <= total_pages:
             self.logger.info(f"正在處理第 {current_page}/{total_pages} 頁")
-            
+
             checkboxes = await self.find_checkboxes(driver)
             if checkboxes:
                 await self.handle_page_with_checkboxes(driver, checkboxes, current_page, total_pages)
             else:
                 await self.handle_page_without_checkboxes(driver, current_page, total_pages)
-            
+
             current_page += 1
 
         self.logger.info("所有頁面處理完成")
@@ -76,13 +77,13 @@ class ResultProcessor:
             await self.select_all_checkboxes(driver, checkboxes)
             await self.click_save_button(driver)
             self.logger.info(f"第 {current_page} 頁的選擇已保存")
-            
+
             if current_page < total_pages:
                 # 不是最後一頁，需要重新搜尋並跳到下一頁
                 await self.navigate_with_research(driver, current_page + 1)
             else:
                 self.logger.info("已處理完最後一頁")
-                
+
         except Exception as e:
             self.logger.error(f"處理第 {current_page} 頁複選框時發生錯誤: {str(e)}")
             raise
@@ -90,7 +91,7 @@ class ResultProcessor:
     async def handle_page_without_checkboxes(self, driver, current_page, total_pages):
         """處理沒有複選框的頁面"""
         self.logger.info(f"第 {current_page} 頁沒有找到複選框")
-        
+
         if current_page < total_pages:
             # 不是最後一頁，直接點擊下一頁
             await self.navigate_to_next_page(driver)
@@ -104,18 +105,20 @@ class ResultProcessor:
         try:
             original_implicit_wait = driver.timeouts.implicit_wait
             driver.implicitly_wait(0)
-            
+
             try:
                 WebDriverWait(driver, 2).until(
-                    lambda d: d.execute_script('return document.readyState') == 'complete'
+                    lambda d: d.execute_script(
+                        'return document.readyState') == 'complete'
                 )
-                checkboxes = driver.find_elements(By.CSS_SELECTOR, self.checkbox_selector)
+                checkboxes = driver.find_elements(
+                    By.CSS_SELECTOR, self.checkbox_selector)
                 self.logger.info(f"找到 {len(checkboxes)} 個複選框")
                 return checkboxes
-                
+
             finally:
                 driver.implicitly_wait(original_implicit_wait)
-                
+
         except Exception as e:
             self.logger.warning(f"查找複選框時發生錯誤: {str(e)}")
             return []
@@ -143,7 +146,7 @@ class ResultProcessor:
             # 點擊複選框
             checkbox.click()
             await asyncio.sleep(0.5)
-            
+
             # 處理 Alert
             try:
                 alert = driver.switch_to.alert
@@ -154,12 +157,12 @@ class ResultProcessor:
                 await asyncio.sleep(0.5)
             except Exception as e:
                 self.logger.warning(f"處理 Alert 時發生異常: {str(e)}")
-            
+
             # 註解原因：目前使用 alert.accept() 處理彈窗，不需要按 ESC
             # 如果之後發現某些情況下 alert.accept() 無法正確處理彈窗，
             # 可以取消註解下面這行
             # await press_esc(driver, self.logger)
-            
+
         except Exception as e:
             self.logger.error(f"點擊複選框時發生錯誤: {str(e)}")
             raise
@@ -179,33 +182,62 @@ class ResultProcessor:
 
     async def click_back_to_main_button(self, driver, mode='search'):
         """點擊回主畫面按鈕"""
-        try:
-            selector = (
-                'input[type="button"][value="回主畫面"][onclick="goSearch(this.form,\'srh\')"]'
-                if mode == 'search'
-                else 'input[type="button"][value="回主畫面"][onclick="goList(this.form)"]'
-            )
-            
-            back_button = driver.find_element(By.CSS_SELECTOR, selector)
-            back_button.click()
-            self.logger.info(f"成功點擊回主畫面按鈕 (mode: {mode})")
-            await asyncio.sleep(1)
-            
-        except Exception as e:
-            await handle_error(driver, "點擊回主畫面按鈕", e, self.logger)
+        max_retries = 3
+        retry_delay = 1
+
+        selector = (
+            'input[type="button"][value="回主畫面"][onclick="goSearch(this.form,\'srh\')"]'
+            if mode == 'search'
+            else 'input[type="button"][value="回主畫面"][onclick="goList(this.form)"]'
+        )
+
+        for attempt in range(max_retries):
+            try:
+                # 等待元素可見且可點擊
+                back_button = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                )
+
+                # 滾動到元素
+                driver.execute_script(
+                    "arguments[0].scrollIntoView(true);", back_button)
+                await asyncio.sleep(0.5)
+
+                try:
+                    # 嘗試普通點擊
+                    back_button.click()
+                    self.logger.info(f"成功點擊回主畫面按鈕 (mode: {mode})")
+                    await asyncio.sleep(1)
+                    return
+                except:
+                    # 如果普通點擊失敗，使用JavaScript點擊
+                    driver.execute_script("arguments[0].click();", back_button)
+                    self.logger.info(f"使用JavaScript成功點擊回主畫面按鈕 (mode: {mode})")
+                    await asyncio.sleep(1)
+                    return
+
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    await handle_error(driver, "點擊回主畫面按鈕", e, self.logger)
+                else:
+                    self.logger.warning(
+                        f"點擊回主畫面按鈕失敗 (嘗試 {attempt + 1}/{max_retries}): {str(e)}")
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+                    continue
 
     async def navigate_to_next_page(self, driver):
         """導航到下一頁"""
         try:
             next_page_link = driver.find_element(By.XPATH, "//a[text()='下一頁']")
             next_page_link.click()
-            
+
             # 等待頁面導航完成
             WebDriverWait(driver, 5).until(
-                lambda d: d.execute_script('return document.readyState') == 'complete'
+                lambda d: d.execute_script(
+                    'return document.readyState') == 'complete'
             )
             self.logger.info("已成功導航到下一頁")
-            
+
         except Exception as e:
             self.logger.error(f"導航到下一頁時發生錯誤: {str(e)}")
             raise
@@ -215,17 +247,17 @@ class ResultProcessor:
         try:
             self.logger.info(f"重新搜索並跳轉到第 {page_number} 頁")
             await take_screenshot(driver, f"重新搜索到第_{page_number}_頁", self.logger)
-            
+
             # 回到主畫面
             await self.click_back_to_main_button(driver, mode='list')
-            
+
             # 等待搜尋按鈕可見
             await wait_for_element(
                 driver,
                 'input[type="button"][value="開始搜尋"]',
                 logger=self.logger
             )
-            
+
             # 重新執行搜尋
             if self.search_params.case_number:
                 await self.search_by_case_number(driver, self.search_params.case_number)
@@ -235,10 +267,14 @@ class ResultProcessor:
                     self.search_params.start_date,
                     self.search_params.end_date
                 )
-            
-            # 跳轉到指定頁面
-            await self.go_to_specific_page(driver, page_number)
-            
+
+            # 使用JavaScript直接跳转到指定页面
+            driver.execute_script(
+                f"goPage(document.FJ202C1PA02,'all','ntidat','all','T','{page_number}','35')"
+            )
+            await asyncio.sleep(2)
+            await wait_for_element(driver, 'table', logger=self.logger)
+
         except Exception as e:
             self.logger.error(f"重新搜索並跳轉到第 {page_number} 頁時發生錯誤: {str(e)}")
             await take_screenshot(driver, f"error_re_search_page_{page_number}", self.logger)
@@ -250,20 +286,22 @@ class ResultProcessor:
             # 等待頁面元素
             await wait_for_element(driver, 'input[name="gtpage1"]', logger=self.logger)
             await wait_for_element(driver, 'input[value="Go"]', logger=self.logger)
-            
+
             # 輸入頁碼並點擊跳轉
-            page_input = driver.find_element(By.CSS_SELECTOR, 'input[name="gtpage1"]')
-            go_button = driver.find_element(By.CSS_SELECTOR, 'input[value="Go"]')
-            
+            page_input = driver.find_element(
+                By.CSS_SELECTOR, 'input[name="gtpage1"]')
+            go_button = driver.find_element(
+                By.CSS_SELECTOR, 'input[value="Go"]')
+
             page_input.clear()
             page_input.send_keys(str(page_number))
             go_button.click()
-            
+
             # 等待頁面加載
             await wait_for_element(driver, 'table', logger=self.logger)
             self.logger.info(f"已跳轉到第 {page_number} 頁")
             await asyncio.sleep(2)
-            
+
         except Exception as e:
             self.logger.error(f"跳轉到第 {page_number} 頁時發生錯誤: {str(e)}")
             raise
@@ -272,47 +310,51 @@ class ResultProcessor:
         """按日期範圍搜尋"""
         try:
             # 選擇日期搜尋選項
-            radio = driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="radio2"]')
+            radio = driver.find_element(
+                By.CSS_SELECTOR, 'input[type="radio"][value="radio2"]')
             radio.click()
             self.logger.info("已選擇日期搜尋選項")
-            
+
             # 使用 JavaScript 直接設定日期值
             driver.execute_script(f"""
                 document.getElementById('date_f').value = '{start_date.strftime("%Y/%m/%d")}';
                 document.getElementById('date_e').value = '{end_date.strftime("%Y/%m/%d")}';
             """)
             self.logger.info(f"已設定日期範圍: {start_date} 至 {end_date}")
-            
+
             # 驗證選擇的日期
             await self.verify_selected_dates(driver, start_date.strftime("%Y/%m/%d"), end_date.strftime("%Y/%m/%d"))
-            
+
             # 選擇公告日期選項
-            announcement_radio = driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="ntidat"]')
+            announcement_radio = driver.find_element(
+                By.CSS_SELECTOR, 'input[type="radio"][value="ntidat"]')
             announcement_radio.click()
             self.logger.info("已選擇公告日期選項")
-            
+
             # 點擊搜尋按鈕
-            search_button = driver.find_element(By.CSS_SELECTOR, 'input[type="button"][value="開始搜尋"]')
+            search_button = driver.find_element(
+                By.CSS_SELECTOR, 'input[type="button"][value="開始搜尋"]')
             search_button.click()
-            
+
             # 等待搜尋結果並驗證
             await wait_for_element(driver, 'table', timeout=10, logger=self.logger)
             search_result = await verify_search_result(driver)
             if not search_result['success']:
                 raise Exception(search_result['message'])
             self.logger.info("已執行日期範圍搜尋")
-            
+
         except Exception as e:
             self.logger.error(f"日期範圍搜尋失敗: {str(e)}")
             raise
 
     async def verify_selected_dates(self, driver, start_date: str, end_date: str):
         """驗證選擇的日期是否正確"""
-        start_value = driver.find_element(By.ID, "date_f").get_attribute("value")
+        start_value = driver.find_element(
+            By.ID, "date_f").get_attribute("value")
         end_value = driver.find_element(By.ID, "date_e").get_attribute("value")
-        
+
         self.logger.info(f"日期範圍選擇完成: {start_value} 至 {end_value}")
-        
+
         if start_value != start_date or end_value != end_date:
             self.logger.warning("選擇的日期可能不正確，請檢查")
 
@@ -320,26 +362,29 @@ class ResultProcessor:
         """按案號搜尋"""
         try:
             # 修正選擇器為正確的 value
-            case_radio = driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="radio1"]')
+            case_radio = driver.find_element(
+                By.CSS_SELECTOR, 'input[type="radio"][value="radio1"]')
             case_radio.click()
             self.logger.info("已選擇案號搜尋選項")
-            
+
             # 輸入案號
-            case_input = driver.find_element(By.NAME, "tndsalno")  # 修正為正確的 name 屬性
+            case_input = driver.find_element(
+                By.NAME, "tndsalno")  # 修正為正確的 name 屬性
             case_input.clear()
             case_input.send_keys(case_number)
-            
+
             # 點擊搜尋按鈕
-            search_button = driver.find_element(By.CSS_SELECTOR, 'input[type="button"][value="開始搜尋"]')
+            search_button = driver.find_element(
+                By.CSS_SELECTOR, 'input[type="button"][value="開始搜尋"]')
             search_button.click()
-            
+
             # 等待搜尋結果並驗證
             await wait_for_element(driver, 'table', timeout=10, logger=self.logger)
             search_result = await verify_search_result(driver)
             if not search_result['success']:
                 raise Exception(search_result['message'])
             self.logger.info(f"已執行案號搜尋: {case_number}")
-            
+
         except Exception as e:
             self.logger.error(f"案號搜尋失敗: {str(e)}")
             raise

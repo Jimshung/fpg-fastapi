@@ -1,7 +1,7 @@
 name: FPG 自動化流程 (Python)
 on:
   schedule:
-    - cron: '30 0 * * 1-5'
+    - cron: '0 0 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -17,6 +17,8 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       CHROME_DRIVER_PATH: /usr/local/bin/chromedriver
+      HEADLESS_MODE: true
+      ENVIRONMENT: production
       TZ: 'Asia/Taipei'
     timeout-minutes: 30
 

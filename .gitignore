@@ -59,7 +59,6 @@ thunder-collection/
 curl_commands_*.txt
 
 # Test files
-tests/http/*.http
 tests/http/*.rest
 tests/http/*.private.env.json
 

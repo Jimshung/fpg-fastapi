@@ -26,18 +26,78 @@ MESSAGES = {
 
 async def click_element_by_text(driver, selector: str, text: str, logger):
     """
-    通過文字內容點擊元素
+    通過文字內容點擊元素，支援多種選擇器策略
+    
+    Args:
+        driver: Selenium WebDriver 實例
+        selector: CSS 選擇器
+        text: 要匹配的文字
+        logger: 日誌記錄器
     """
     try:
-        elements = driver.find_elements(By.CSS_SELECTOR, selector)
-        for element in elements:
-            if text in element.text:
-                element.click()
-                logger.info(f"成功點擊文字為 '{text}' 的元素")
-                return True
-        raise Exception(f"未找到包含文字 '{text}' 的元素")
+        # 定義多種選擇器策略
+        strategies = [
+            # 策略 1: 使用原始的 CSS 選擇器
+            (By.CSS_SELECTOR, selector),
+            
+            # 策略 2: 使用 href 屬性匹配
+            (By.CSS_SELECTOR, f"a[href*='prc_bid_gen_srh.jsp']"),
+            
+            # 策略 3: 使用 XPath 包含文字匹配
+            (By.XPATH, f"//a[contains(text(), '{text}')]"),
+            
+            # 策略 4: 使用 class 匹配
+            (By.CSS_SELECTOR, "a.menu_sec1.lnk_module"),
+            
+            # 策略 5: 使用完整的 href 路徑
+            (By.CSS_SELECTOR, "a[href='/j202/prc/prc_bid_gen_srh.jsp']"),
+            
+            # 策略 6: 使用更寬鬆的文字匹配
+            (By.XPATH, f"//*[contains(text(), '{text}')]")
+        ]
+        
+        # 嘗試每種策略
+        for by, sel in strategies:
+            try:
+                elements = driver.find_elements(by, sel)
+                logger.debug(f"使用選擇器 {sel} 找到 {len(elements)} 個元素")
+                
+                for element in elements:
+                    try:
+                        if text.lower() in element.text.lower():
+                            # 確保元素可見且可點擊
+                            if element.is_displayed() and element.is_enabled():
+                                # 嘗試滾動到元素
+                                driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                                # 等待一小段時間確保元素完全可見
+                                await asyncio.sleep(0.5)
+                                
+                                # 嘗試點擊
+                                try:
+                                    element.click()
+                                    logger.info(f"成功點擊文字為 '{text}' 的元素 (使用選擇器: {sel})")
+                                    return True
+                                except:
+                                    # 如果普通點擊失敗，嘗試使用 JavaScript 點擊
+                                    driver.execute_script("arguments[0].click();", element)
+                                    logger.info(f"使用 JavaScript 成功點擊文字為 '{text}' 的元素")
+                                    return True
+                                
+                    except Exception as e:
+                        logger.debug(f"處理元素時發生錯誤: {str(e)}")
+                        continue
+                        
+            except Exception as e:
+                logger.debug(f"使用選擇器 {sel} 時發生錯誤: {str(e)}")
+                continue
+                
+        # 如果所有策略都失敗，則拍攝截圖並拋出異常
+        await take_screenshot(driver, f"click_element_failed_{text}", logger)
+        raise Exception(f"無法找到或點擊包含文字 '{text}' 的元素")
+        
     except Exception as e:
         logger.error(f"點擊元素失敗: {str(e)}")
+        await take_screenshot(driver, f"click_element_error_{text}", logger)
         raise
 
 async def take_screenshot(driver, name: str, logger):
