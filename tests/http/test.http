@@ -17,8 +17,8 @@ POST http://localhost:8000/api/v1/search
 Content-Type: application/json
 
 {
-  "start_date": "2025-05-01",
-  "end_date": "2025-05-06"
+  "start_date": "2025-07-07",
+  "end_date": "2025-07-07"
 }
 
 ### 搜尋今天的標售公報
