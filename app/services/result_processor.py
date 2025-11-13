@@ -233,13 +233,10 @@ class ResultProcessor:
                 EC.element_to_be_clickable((By.XPATH, "//a[text()='下一頁']"))
             )
             
-            # 2. 使用 JavaScript 點擊，這對動態頁面更穩定
             driver.execute_script("arguments[0].click();", next_page_link)
             
-            # 3. 給予 JavaScript 一點執行時間
             await asyncio.sleep(1)
 
-            # 4. 等待頁面導航完成
             WebDriverWait(driver, 10).until(
                 lambda d: d.execute_script('return document.readyState') == 'complete'
             )
@@ -247,8 +244,6 @@ class ResultProcessor:
 
         except Exception as e:
             self.logger.error(f"導航到下一頁時發生錯誤: {str(e)}")
-            # 發生錯誤時截圖，幫助排查
-            await take_screenshot(driver, "navigate_next_page_error", self.logger)
             raise
 
     async def navigate_with_research(self, driver, page_number: int):
