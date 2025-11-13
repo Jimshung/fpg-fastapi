@@ -66,9 +66,14 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True  # 確保環境變數名稱大小寫敏感
 
+@lru_cache()
 def get_settings():
     """獲取設定實例"""
-    return Settings()
+    try:
+        return Settings()
+    except Exception as e:
+        print(f"Error loading settings: {str(e)}")
+        raise
 
 settings = get_settings()
 logger.info(f"HEADLESS_MODE 設定為: {settings.HEADLESS_MODE}")

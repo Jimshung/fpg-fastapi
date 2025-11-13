@@ -228,18 +228,27 @@ class ResultProcessor:
     async def navigate_to_next_page(self, driver):
         """導航到下一頁"""
         try:
-            next_page_link = driver.find_element(By.XPATH, "//a[text()='下一頁']")
-            next_page_link.click()
+            # 1. 等待元素可見且可被點擊
+            next_page_link = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//a[text()='下一頁']"))
+            )
+            
+            # 2. 使用 JavaScript 點擊，這對動態頁面更穩定
+            driver.execute_script("arguments[0].click();", next_page_link)
+            
+            # 3. 給予 JavaScript 一點執行時間
+            await asyncio.sleep(1)
 
-            # 等待頁面導航完成
-            WebDriverWait(driver, 5).until(
-                lambda d: d.execute_script(
-                    'return document.readyState') == 'complete'
+            # 4. 等待頁面導航完成
+            WebDriverWait(driver, 10).until(
+                lambda d: d.execute_script('return document.readyState') == 'complete'
             )
             self.logger.info("已成功導航到下一頁")
 
         except Exception as e:
             self.logger.error(f"導航到下一頁時發生錯誤: {str(e)}")
+            # 發生錯誤時截圖，幫助排查
+            await take_screenshot(driver, "navigate_next_page_error", self.logger)
             raise
 
     async def navigate_with_research(self, driver, page_number: int):
@@ -268,12 +277,15 @@ class ResultProcessor:
                     self.search_params.end_date
                 )
 
-            # 使用JavaScript直接跳转到指定页面
-            driver.execute_script(
-                f"goPage(document.FJ202C1PA02,'all','ntidat','all','T','{page_number}','35')"
-            )
-            await asyncio.sleep(2)
-            await wait_for_element(driver, 'table', logger=self.logger)
+            # 確認結果頁面已載入
+            await wait_for_element(driver, 'input[name="gtpage1"]', timeout=10, logger=self.logger)
+            self.logger.info("搜尋結果頁面準備完成，準備跳轉至指定頁面")
+
+            # 使用現有的頁碼跳轉函式
+            await self.go_to_specific_page(driver, page_number)
+
+            # 再次確認頁面狀態
+            await verify_search_result(driver)
 
         except Exception as e:
             self.logger.error(f"重新搜索並跳轉到第 {page_number} 頁時發生錯誤: {str(e)}")
@@ -283,6 +295,8 @@ class ResultProcessor:
     async def go_to_specific_page(self, driver, page_number: int):
         """跳轉到指定頁面"""
         try:
+            self.logger.info(f"使用頁碼輸入跳轉到第 {page_number} 頁")
+
             # 等待頁面元素
             await wait_for_element(driver, 'input[name="gtpage1"]', logger=self.logger)
             await wait_for_element(driver, 'input[value="Go"]', logger=self.logger)
@@ -293,8 +307,18 @@ class ResultProcessor:
             go_button = driver.find_element(
                 By.CSS_SELECTOR, 'input[value="Go"]')
 
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", page_input)
+            await asyncio.sleep(0.5)
+
             page_input.clear()
             page_input.send_keys(str(page_number))
+            driver.execute_script("arguments[0].value = arguments[1];", page_input, str(page_number))
+            current_value = page_input.get_attribute("value")
+            self.logger.debug(f"頁碼輸入欄位目前值: {current_value}")
+
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", go_button)
+            await asyncio.sleep(0.5)
+
             go_button.click()
 
             # 等待頁面加載
@@ -309,21 +333,36 @@ class ResultProcessor:
     async def search_by_date_range(self, driver, start_date, end_date):
         """按日期範圍搜尋"""
         try:
+            from datetime import date, datetime
+
+            def format_date(value):
+                if isinstance(value, (date, datetime)):
+                    return value.strftime("%Y/%m/%d")
+                return value
+
+            start_date_str = format_date(start_date)
+            end_date_str = format_date(end_date)
+
             # 選擇日期搜尋選項
             radio = driver.find_element(
                 By.CSS_SELECTOR, 'input[type="radio"][value="radio2"]')
             radio.click()
             self.logger.info("已選擇日期搜尋選項")
 
+            # 等待日期輸入欄位可見，確保頁面已切換到日期搜尋模式
+            WebDriverWait(driver, 10).until(
+                EC.visibility_of_element_located((By.ID, "date_f"))
+            )
+
             # 使用 JavaScript 直接設定日期值
             driver.execute_script(f"""
-                document.getElementById('date_f').value = '{start_date.strftime("%Y/%m/%d")}';
-                document.getElementById('date_e').value = '{end_date.strftime("%Y/%m/%d")}';
+                document.getElementById('date_f').value = '{start_date_str}';
+                document.getElementById('date_e').value = '{end_date_str}';
             """)
-            self.logger.info(f"已設定日期範圍: {start_date} 至 {end_date}")
+            self.logger.info(f"已設定日期範圍: {start_date_str} 至 {end_date_str}")
 
             # 驗證選擇的日期
-            await self.verify_selected_dates(driver, start_date.strftime("%Y/%m/%d"), end_date.strftime("%Y/%m/%d"))
+            await self.verify_selected_dates(driver, start_date_str, end_date_str)
 
             # 選擇公告日期選項
             announcement_radio = driver.find_element(

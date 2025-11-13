@@ -86,6 +86,16 @@ class BrowserService:
                 else:
                     self.logger.error("在系統中找不到 ChromeDriver")
                     raise FileNotFoundError("ChromeDriver not found in system")
+
+            # 確保 ChromeDriver 有執行權限
+            if not os.access(driver_path, os.X_OK):
+                self.logger.warning(f"ChromeDriver ({driver_path}) 沒有執行權限，正在嘗試設定...")
+                try:
+                    os.chmod(driver_path, 0o755)
+                    self.logger.info("成功設定 ChromeDriver 執行權限")
+                except Exception as e:
+                    self.logger.error(f"設定 ChromeDriver 權限失敗: {e}")
+                    raise
             
             service = Service(executable_path=driver_path)
             self.driver = webdriver.Chrome(service=service, options=options)
