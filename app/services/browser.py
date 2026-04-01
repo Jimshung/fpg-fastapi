@@ -64,15 +64,20 @@ class BrowserService:
             else:
                 self.logger.info("使用有頭模式運行瀏覽器")
             
-            # 使用系統安裝的 ChromeDriver
-            if platform.system() == 'Darwin':  # macOS
-                driver_path = '/opt/homebrew/bin/chromedriver'  # Mac 的 Homebrew 安裝路徑
-                self.logger.info("檢測到 macOS 系統")
-            else:  # Linux (包括 GitHub Actions)
-                driver_path = '/usr/local/bin/chromedriver'  # Linux 的預設路徑
-                self.logger.info("檢測到 Linux 系統")
-                
-            self.logger.info(f"使用系統 ChromeDriver: {driver_path}")
+            # 優先使用設定的 CHROME_DRIVER_PATH（例如專案內 bin/chromedriver）
+            if settings.CHROME_DRIVER_PATH:
+                driver_path = settings.CHROME_DRIVER_PATH
+                self.logger.info(f"使用設定檔 CHROME_DRIVER_PATH: {driver_path}")
+            else:
+                # 使用系統安裝的 ChromeDriver
+                if platform.system() == 'Darwin':  # macOS
+                    driver_path = '/opt/homebrew/bin/chromedriver'  # Mac 的 Homebrew 安裝路徑
+                    self.logger.info("檢測到 macOS 系統")
+                else:  # Linux (包括 GitHub Actions)
+                    driver_path = '/usr/local/bin/chromedriver'  # Linux 的預設路徑
+                    self.logger.info("檢測到 Linux 系統")
+                    
+                self.logger.info(f"使用系統 ChromeDriver: {driver_path}")
             
             # 檢查 ChromeDriver 是否存在
             if not os.path.exists(driver_path):

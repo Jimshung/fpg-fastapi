@@ -17,6 +17,10 @@ class ResultProcessor:
         self.logger = logging.getLogger(__name__)
         self.search_params = None
         self.checkbox_selector = 'input[type="checkbox"][name="item"][onclick="goCheck(this.form,this)"]'
+        # 重試控制：單次重搜最多 1 次、全流程最多 3 次
+        self._navigate_retry_total_used = 0
+        self._navigate_retry_total_limit = 3
+        self._navigate_retry_per_call_limit = 1
 
     def update_search_params(self, search_params):
         """更新搜尋參數"""
@@ -248,44 +252,64 @@ class ResultProcessor:
 
     async def navigate_with_research(self, driver, page_number: int):
         """重新搜尋並導航到指定頁面"""
-        try:
-            self.logger.info(f"重新搜索並跳轉到第 {page_number} 頁")
-            await take_screenshot(driver, f"重新搜索到第_{page_number}_頁", self.logger)
+        attempts = 0
+        max_attempts = 1 + self._navigate_retry_per_call_limit  # 初始 + 1 次重試
 
-            # 回到主畫面
-            await self.click_back_to_main_button(driver, mode='list')
+        while attempts < max_attempts:
+            try:
+                attempts += 1
+                self.logger.info(f"重新搜索並跳轉到第 {page_number} 頁 (嘗試 {attempts}/{max_attempts})")
+                await take_screenshot(driver, f"重新搜索到第_{page_number}_頁", self.logger)
 
-            # 等待搜尋按鈕可見
-            await wait_for_element(
-                driver,
-                'input[type="button"][value="開始搜尋"]',
-                logger=self.logger
-            )
+                # 回到主畫面
+                await self.click_back_to_main_button(driver, mode='list')
 
-            # 重新執行搜尋
-            if self.search_params.case_number:
-                await self.search_by_case_number(driver, self.search_params.case_number)
-            else:
-                await self.search_by_date_range(
+                # 等待搜尋按鈕可見
+                await wait_for_element(
                     driver,
-                    self.search_params.start_date,
-                    self.search_params.end_date
+                    'input[type="button"][value="開始搜尋"]',
+                    logger=self.logger
                 )
 
-            # 確認結果頁面已載入
-            await wait_for_element(driver, 'input[name="gtpage1"]', timeout=10, logger=self.logger)
-            self.logger.info("搜尋結果頁面準備完成，準備跳轉至指定頁面")
+                # 重新執行搜尋
+                if self.search_params.case_number:
+                    await self.search_by_case_number(driver, self.search_params.case_number)
+                else:
+                    await self.search_by_date_range(
+                        driver,
+                        self.search_params.start_date,
+                        self.search_params.end_date
+                    )
 
-            # 使用現有的頁碼跳轉函式
-            await self.go_to_specific_page(driver, page_number)
+                # 確認結果頁面已載入
+                await wait_for_element(driver, 'input[name="gtpage1"]', timeout=10, logger=self.logger)
+                self.logger.info("搜尋結果頁面準備完成，準備跳轉至指定頁面")
 
-            # 再次確認頁面狀態
-            await verify_search_result(driver)
+                # 使用現有的頁碼跳轉函式
+                await self.go_to_specific_page(driver, page_number)
 
-        except Exception as e:
-            self.logger.error(f"重新搜索並跳轉到第 {page_number} 頁時發生錯誤: {str(e)}")
-            await take_screenshot(driver, f"error_re_search_page_{page_number}", self.logger)
-            raise
+                # 再次確認頁面狀態
+                await verify_search_result(driver)
+                return
+
+            except Exception as e:
+                self.logger.error(f"重新搜索並跳轉到第 {page_number} 頁時發生錯誤: {str(e)}")
+                await take_screenshot(driver, f"error_re_search_page_{page_number}", self.logger)
+
+                # 達到單次上限 or 全域上限就不再重試
+                if attempts >= max_attempts:
+                    raise
+                if self._navigate_retry_total_used >= self._navigate_retry_total_limit:
+                    self.logger.error(
+                        f"已達全流程重試上限 {self._navigate_retry_total_limit}，停止重試"
+                    )
+                    raise
+
+                self._navigate_retry_total_used += 1
+                self.logger.warning(
+                    f"準備重試跳轉第 {page_number} 頁（全流程已用 {self._navigate_retry_total_used}/{self._navigate_retry_total_limit} 次）"
+                )
+                await asyncio.sleep(2)
 
     async def go_to_specific_page(self, driver, page_number: int):
         """跳轉到指定頁面"""
