@@ -33,20 +33,29 @@ jobs:
 
       - name: Setup Chrome and ChromeDriver
         run: |
-          # 安裝 Chrome
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
+          sudo apt-get install -y google-chrome-stable curl unzip
 
-          # 獲取 Chrome 版本
-          CHROME_VERSION=$(google-chrome --version | cut -d " " -f3)
+          CHROME_VERSION=$(google-chrome --version | awk '{print $3}')
+          echo "Chrome version from apt: ${CHROME_VERSION}"
 
-          # 下載對應版本的 ChromeDriver
-          wget -q "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$CHROME_VERSION/linux64/chromedriver-linux64.zip"
-          unzip chromedriver-linux64.zip
-          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+          ZIP_PATH="${RUNNER_TEMP}/chromedriver-linux64.zip"
+          # 新版 Chrome（約 121+）使用 storage.googleapis.com；舊的 edgedl URL 常 404
+          PRIMARY_URL="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chromedriver-linux64.zip"
+
+          if curl -fsSL -o "$ZIP_PATH" "$PRIMARY_URL"; then
+            echo "Downloaded chromedriver from primary URL (chrome-for-testing-public)."
+          else
+            echo "Primary URL failed; resolving from Chrome for Testing known-good JSON..."
+            FALLBACK_URL=$(python3 "${GITHUB_WORKSPACE}/scripts/ci_resolve_chromedriver_url.py")
+            curl -fsSL -o "$ZIP_PATH" "$FALLBACK_URL"
+          fi
+
+          unzip -o "$ZIP_PATH" -d "${RUNNER_TEMP}/chromedriver-extract"
+          sudo mv "${RUNNER_TEMP}/chromedriver-extract/chromedriver-linux64/chromedriver" /usr/local/bin/
           sudo chmod +x /usr/local/bin/chromedriver
 
-          # 驗證安裝
           google-chrome --version
           chromedriver --version
 
