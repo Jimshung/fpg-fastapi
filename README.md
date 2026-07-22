@@ -54,7 +54,7 @@ python -m app.scripts.run_archive --limit 3
 python -m app.scripts.run_archive --include-mainland
 ```
 
-Notion 桌面表格第一眼欄位：標售案號、廠區聯絡人、公告次數、品名規格／標售數量、提貨地點、公告日、報價截止日、有附件。
+Notion 桌面表格第一眼欄位：標售案號、案件類型（一般標售／競標）、廠區聯絡人、品名規格／標售數量、提貨地點、公告日、報價截止日、有附件（公告次數僅詳細頁顯示）。
 
 ## 專案結構（重點）
 
@@ -66,6 +66,7 @@ app/
     fpg_http_client.py            # HTTP session
     fpg_parser.py                 # HTML 解析
     notion_archive_service.py     # Notion upsert
+    notion_zip_contents.py        # ZIP 解壓 → 頁面內容區塊
     taiwan_case_filter.py         # 台灣案篩選
   models/case_record.py
 scripts/
@@ -96,4 +97,6 @@ uvicorn app.main:app --reload
 - 勿把 `.env`、截圖、下載 ZIP commit 進 repo
 - OCR 不穩時會自動重試登入
 - 標案管理尚無「填寫報價單」時，仍會用公報摘要寫入 Notion（無附件）
+- 公報標示「競標案件」者改走競標管理（`/j202/cmp`）；一般案走標案管理（`/j202/prc`），找不到會互備 fallback
+- 有 ZIP 時除寫入「附件」屬性外，也會解壓並把 PDF／圖片寫進詳細頁內容區（標題「標售附件」；TIF 會轉 PNG）
 - Notion Integration 須保持連到「FPG 標售案件」資料庫

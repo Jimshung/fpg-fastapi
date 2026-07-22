@@ -27,6 +27,8 @@ class CaseRecord:
     tndsalno: str
     inqcnt: str
     blocid: str = ""
+    # "gen"=標案管理(/j202/prc)，"cmp"=競標管理(/j202/cmp)
+    bid_channel: str = "gen"
     company: str = ""
     department: str = ""
     location: str = ""

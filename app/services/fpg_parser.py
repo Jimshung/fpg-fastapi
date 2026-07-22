@@ -38,16 +38,24 @@ def _split_contact(raw: str) -> tuple[str, str]:
 
 
 def parse_bulletin_cases(html: str) -> list[CaseRecord]:
-    """從標售公報清單解析可取得的摘要欄位（標案管理前備援）。"""
+    """從標售公報清單解析可取得的摘要欄位（標案／競標管理前備援）。"""
     records: list[CaseRecord] = []
     seen: set[tuple[str, str]] = set()
 
-    # 依清單序號切開每個案件區塊
+    # 依清單序號切開；競標案項次會多 <br><font color=red>競標案件</font>
     parts = re.split(
-        r'<td width="8%">\s*<div align="center"><font size="2">\s*\d+\s*</font>',
+        r'<td width="8%">\s*<div align="center"><font size="2">\s*\d+\s*'
+        r"(?:<br>[\s\S]*?)?</font>",
         html,
     )
-    for chunk in parts[1:]:
+    # 序號區塊（含是否標示競標案件）與 parts[1:] 對齊
+    markers = re.findall(
+        r'<td width="8%">\s*<div align="center"><font size="2">\s*\d+\s*'
+        r"((?:<br>[\s\S]*?)?)</font>",
+        html,
+    )
+    for index, chunk in enumerate(parts[1:]):
+        is_auction = index < len(markers) and "競標案件" in markers[index]
         for case_m in re.finditer(
             r'<font size="2">(\d{4}/\d{2}/\d{2})\s*</font></div>\s*</td>\s*'
             r'<td[^>]*>\s*<div align="center"><font size="2">'
@@ -63,7 +71,10 @@ def parse_bulletin_cases(html: str) -> list[CaseRecord]:
             seen.add(key)
 
             # 每個案號往前取區塊，避免多案同段時欄位錯位
-            local = chunk[max(0, case_m.start() - 4500) : case_m.start()]
+            local = chunk[max(0, case_m.start() - 6500) : case_m.start()]
+            # 若本段開頭即本案說明，再以項次後全文補強
+            if is_auction or "競標案件" in local:
+                is_auction = True
 
             announce = ""
             quantity = ""
@@ -108,6 +119,7 @@ def parse_bulletin_cases(html: str) -> list[CaseRecord]:
                 CaseRecord(
                     tndsalno=tndsalno,
                     inqcnt=inqcnt,
+                    bid_channel="cmp" if is_auction else "gen",
                     location=strip_html(location),
                     announce_date=to_iso_date(announce),
                     quote_deadline=to_iso_date(deadline),
@@ -266,6 +278,7 @@ def merge_records(base: CaseRecord, extra: CaseRecord) -> CaseRecord:
     """以 extra 非空欄位覆蓋 base。"""
     for field_name in (
         "blocid",
+        "bid_channel",
         "company",
         "department",
         "location",

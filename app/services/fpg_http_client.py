@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import logging
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin
@@ -33,8 +34,42 @@ LOGIN_SERVLET = f"{BASE}/j202/servlet/com.fpg.j202.Cj202000"
 CAPTCHA_URL = f"{BASE}/j202/Captcha.do"
 BULLETIN_PAGE = f"{BASE}/j202/prc/prc_anno_comp_srh.jsp"
 BULLETIN_POST = f"{BASE}/j202/servlet/com.fpg.j202.Cj202c12"
+# 標案管理（一般標售）
 BID_PAGE = f"{BASE}/j202/prc/prc_bid_gen_srh.jsp"
 BID_POST = f"{BASE}/j202/servlet/com.fpg.j202.Cj202c13"
+# 競標管理（競標案件）
+CMP_BID_PAGE = f"{BASE}/j202/cmp/prc_bid_gen_srh.jsp"
+CMP_BID_POST = f"{BASE}/j202/servlet/com.fpg.j202.Cj202c14"
+
+
+@dataclass(frozen=True)
+class BidChannelConfig:
+    page: str
+    post: str
+    from_search: str
+    from_list: str
+    from_detail: str
+    label: str
+
+
+_BID_CHANNELS: dict[str, BidChannelConfig] = {
+    "gen": BidChannelConfig(
+        page=BID_PAGE,
+        post=BID_POST,
+        from_search="FJ202C1PB01",
+        from_list="FJ202C1PB02",
+        from_detail="FJ202C1PB03",
+        label="標案管理",
+    ),
+    "cmp": BidChannelConfig(
+        page=CMP_BID_PAGE,
+        post=CMP_BID_POST,
+        from_search="FJ202C2PB01",
+        from_list="FJ202C2PB02",
+        from_detail="FJ202C2PB03",
+        label="競標管理",
+    ),
+}
 
 
 class FpgHttpClient:
@@ -207,106 +242,146 @@ class FpgHttpClient:
         return await self._post_form(BULLETIN_POST, form, referer=BULLETIN_PAGE)
 
     async def enrich_case(self, base: CaseRecord) -> CaseRecord:
-        """以標案管理詢價／報價明細 enrichment；找不到則保留公報摘要。"""
-        record = CaseRecord(tndsalno=base.tndsalno, inqcnt=base.inqcnt)
-        record.source_url = BID_POST
-        try:
-            await self._get(BID_PAGE)
-            list_html = await self._post_form(
-                BID_POST,
-                {
-                    "FROMJSP": "FJ202C1PB01",
-                    "BTN": "goList",
-                    "srh_kd": "bytndsalno",
-                    "srh_blocid": "",
-                    "srh_sts": "",
-                    "srh_tndsalno": base.tndsalno,
-                    "srh_begdat": "",
-                    "srh_enddat": "",
-                    "dateradio": "ntidat",
-                    "stsradio": "ntidat",
-                },
-                referer=BID_PAGE,
-            )
-            detail = parse_bid_go_detail(list_html)
-            if not detail:
-                logger.info(
-                    "標案管理無報價單，使用公報摘要 %s/%s",
+        """以標案／競標管理詢價／報價明細 enrichment；找不到則保留公報摘要。"""
+        primary = base.bid_channel if base.bid_channel in _BID_CHANNELS else "gen"
+        fallback = "cmp" if primary == "gen" else "gen"
+        last_error = ""
+        for channel in (primary, fallback):
+            try:
+                enriched = await self._enrich_via_channel(base, channel)
+            except Exception as exc:
+                last_error = str(exc)
+                logger.exception(
+                    "%s擷取案件失敗 %s/%s",
+                    _BID_CHANNELS[channel].label,
                     base.tndsalno,
                     base.inqcnt,
                 )
-                base.status = "new"
-                if not base.error:
-                    base.error = ""
-                return base
+                continue
+            if enriched is not None:
+                return enriched
+        if last_error:
+            base.status = "error"
+            base.error = last_error
+            return base
+        logger.info(
+            "標案／競標管理皆無報價單，使用公報摘要 %s/%s",
+            base.tndsalno,
+            base.inqcnt,
+        )
+        base.status = "new"
+        if not base.error:
+            base.error = ""
+        return base
 
-            blocid, tnd, inq = detail
-            record.blocid = blocid
-            record.tndsalno = tnd
-            record.inqcnt = inq
+    async def _enrich_via_channel(
+        self,
+        base: CaseRecord,
+        channel: str,
+    ) -> CaseRecord | None:
+        cfg = _BID_CHANNELS[channel]
+        record = CaseRecord(
+            tndsalno=base.tndsalno,
+            inqcnt=base.inqcnt,
+            bid_channel=channel,
+        )
+        record.source_url = cfg.post
+        await self._get(cfg.page)
+        list_html = await self._post_form(
+            cfg.post,
+            {
+                "FROMJSP": cfg.from_search,
+                "BTN": "goList",
+                "srh_kd": "bytndsalno",
+                "srh_blocid": "",
+                "srh_sts": "",
+                "srh_tndsalno": base.tndsalno,
+                "srh_begdat": "",
+                "srh_enddat": "",
+                "dateradio": "ntidat",
+                "stsradio": "ntidat",
+            },
+            referer=cfg.page,
+        )
+        detail = parse_bid_go_detail(list_html)
+        if not detail:
+            logger.info(
+                "%s無報價單 %s/%s",
+                cfg.label,
+                base.tndsalno,
+                base.inqcnt,
+            )
+            return None
 
-            page_html = await self._post_form(
-                BID_POST,
+        blocid, tnd, inq = detail
+        record.blocid = blocid
+        record.tndsalno = tnd
+        record.inqcnt = inq
+
+        page_html = await self._post_form(
+            cfg.post,
+            {
+                "FROMJSP": cfg.from_list,
+                "BTN": "goQuo",
+                "blocid": blocid,
+                "tndsalno": tnd,
+                "inqcnt": inq,
+                "status": "",
+                "inqdeldat": "",
+                "inqpur": "",
+                "inqexpire": "",
+                "quo_from_page": "prc_bid_gen_lst",
+            },
+            referer=cfg.post,
+        )
+        fromjsp = parse_fromjsp(page_html) or cfg.from_detail
+
+        inquiry_html = page_html
+        quote_html = page_html
+        if "七、報價明細" not in page_html:
+            quote_html = await self._post_form(
+                cfg.post,
                 {
-                    "FROMJSP": "FJ202C1PB02",
+                    "FROMJSP": fromjsp,
                     "BTN": "goQuo",
                     "blocid": blocid,
                     "tndsalno": tnd,
                     "inqcnt": inq,
-                    "status": "",
-                    "inqdeldat": "",
-                    "inqpur": "",
-                    "inqexpire": "",
-                    "quo_from_page": "prc_bid_gen_lst",
                 },
-                referer=BID_POST,
+                referer=cfg.post,
             )
-            fromjsp = parse_fromjsp(page_html) or "FJ202C1PB03"
+        if "委託公司" not in inquiry_html and "二、委託公司" not in inquiry_html:
+            inquiry_html = await self._post_form(
+                cfg.post,
+                {
+                    "FROMJSP": parse_fromjsp(quote_html) or fromjsp,
+                    "BTN": "goInq",
+                    "blocid": blocid,
+                    "tndsalno": tnd,
+                    "inqcnt": inq,
+                },
+                referer=cfg.post,
+            )
 
-            inquiry_html = page_html
-            quote_html = page_html
-            if "七、報價明細" not in page_html:
-                quote_html = await self._post_form(
-                    BID_POST,
-                    {
-                        "FROMJSP": fromjsp,
-                        "BTN": "goQuo",
-                        "blocid": blocid,
-                        "tndsalno": tnd,
-                        "inqcnt": inq,
-                    },
-                    referer=BID_POST,
-                )
-            if "委託公司" not in inquiry_html and "二、委託公司" not in inquiry_html:
-                inquiry_html = await self._post_form(
-                    BID_POST,
-                    {
-                        "FROMJSP": parse_fromjsp(quote_html) or fromjsp,
-                        "BTN": "goInq",
-                        "blocid": blocid,
-                        "tndsalno": tnd,
-                        "inqcnt": inq,
-                    },
-                    referer=BID_POST,
-                )
+        parse_inquiry_form(inquiry_html, record)
+        parse_quote_form(quote_html, record)
 
-            parse_inquiry_form(inquiry_html, record)
-            parse_quote_form(quote_html, record)
-
-            if record.zip_url:
-                zip_path = await self.download_zip(record.zip_url, tnd)
-                if zip_path:
-                    record.zip_path = str(zip_path)
-                    record.zip_sha256 = hashlib.sha256(
-                        zip_path.read_bytes()
-                    ).hexdigest()
-            record.status = "new"
-            return merge_records(base, record)
-        except Exception as exc:
-            logger.exception("擷取案件失敗 %s/%s", base.tndsalno, base.inqcnt)
-            base.status = "error"
-            base.error = str(exc)
-            return base
+        if record.zip_url:
+            zip_path = await self.download_zip(record.zip_url, tnd)
+            if zip_path:
+                record.zip_path = str(zip_path)
+                record.zip_sha256 = hashlib.sha256(
+                    zip_path.read_bytes()
+                ).hexdigest()
+        record.status = "new"
+        logger.info(
+            "%s enrichment 成功 %s/%s items=%s",
+            cfg.label,
+            tnd,
+            inq,
+            len(record.items),
+        )
+        return merge_records(base, record)
 
     async def download_zip(self, zip_url: str, tndsalno: str) -> Optional[Path]:
         url = urljoin(BASE, zip_url)

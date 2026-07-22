@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -12,20 +13,37 @@ import aiohttp
 
 from app.core.config import settings
 from app.models.case_record import CaseRecord
+from app.services.notion_zip_contents import (
+    ATTACHMENT_MARKER_PREFIX,
+    block_plain_text,
+    build_attachment_heading_blocks,
+    build_media_block,
+    managed_attachment_block_ids,
+    prepare_zip_members,
+)
 
 logger = logging.getLogger(__name__)
 API = "https://api.notion.com/v1"
 
+# Notion 約 3 req/s；上傳後稍候再接下一個請求
+NOTION_REQUEST_PAUSE = 0.35
+NOTION_UPLOAD_PAUSE = 0.25
+NOTION_DELETE_PAUSE = 0.2
+
 PRIORITY_COLUMNS = [
     "標售案號",
+    "案件類型",
     "廠區聯絡人",
-    "公告次數",
     "品名規格/標售數量",
     "提貨地點",
     "公告日",
     "報價截止日",
     "有附件",
 ]
+
+
+def case_type_label(record: CaseRecord) -> str:
+    return "競標" if getattr(record, "bid_channel", "") == "cmp" else "一般標售"
 
 
 def normalize_db_id(raw: str) -> str:
@@ -126,6 +144,14 @@ class NotionArchiveService:
             patch[title_name] = {"name": "標售案號"}
 
         desired = {
+            "案件類型": {
+                "select": {
+                    "options": [
+                        {"name": "一般標售", "color": "gray"},
+                        {"name": "競標", "color": "red"},
+                    ]
+                }
+            },
             "廠區聯絡人": {"rich_text": {}},
             "公告次數": {"rich_text": {}},
             "品名規格/標售數量": {"rich_text": {}},
@@ -186,6 +212,21 @@ class NotionArchiveService:
         return results[0] if results else None
 
     async def upload_zip(self, zip_path: Path) -> str:
+        return await self.upload_file(
+            zip_path,
+            filename=zip_path.name,
+            content_type="application/zip",
+        )
+
+    async def upload_file(
+        self,
+        path: Path,
+        *,
+        filename: str | None = None,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        filename = filename or path.name
+        data = path.read_bytes()
         last_error = None
         upload_id = ""
         send_url = ""
@@ -195,8 +236,8 @@ class NotionArchiveService:
                 f"{API}/file_uploads",
                 headers=self._headers(version, json_body=True),
                 json={
-                    "filename": zip_path.name,
-                    "content_type": "application/zip",
+                    "filename": filename,
+                    "content_type": content_type,
                 },
             ) as resp:
                 body = await resp.json()
@@ -215,9 +256,9 @@ class NotionArchiveService:
         form = aiohttp.FormData()
         form.add_field(
             "file",
-            zip_path.read_bytes(),
-            filename=zip_path.name,
-            content_type="application/zip",
+            data,
+            filename=filename,
+            content_type=content_type,
         )
         async with self.session.post(
             send_url,
@@ -236,6 +277,97 @@ class NotionArchiveService:
             return ""
         return texts[0].get("plain_text") or texts[0].get("text", {}).get("content", "")
 
+    async def _list_block_children(self, block_id: str) -> list[dict]:
+        results: list[dict] = []
+        cursor = None
+        version = self.file_upload_version
+        while True:
+            path = f"/blocks/{block_id}/children?page_size=100"
+            if cursor:
+                path += f"&start_cursor={cursor}"
+            data = await self.request("GET", path, version=version)
+            results.extend(data.get("results") or [])
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+            if not cursor:
+                break
+        return results
+
+    async def _page_has_expanded_attachments(
+        self,
+        page_id: str,
+        zip_sha256: str = "",
+    ) -> bool:
+        needle = (zip_sha256 or "")[:16]
+        for block in await self._list_block_children(page_id):
+            if block.get("type") != "paragraph":
+                continue
+            text = block_plain_text(block)
+            if ATTACHMENT_MARKER_PREFIX not in text:
+                continue
+            if not needle or needle in text:
+                return True
+        return False
+
+    async def _clear_managed_attachment_blocks(self, page_id: str) -> None:
+        """只刪除「標售附件」區段（從標題／標記到頁尾），不碰其他手動內容。"""
+        children = await self._list_block_children(page_id)
+        for block_id in managed_attachment_block_ids(children):
+            await self.request(
+                "DELETE",
+                f"/blocks/{block_id}",
+                version=self.file_upload_version,
+            )
+            await asyncio.sleep(NOTION_DELETE_PAUSE)
+
+    async def sync_attachment_page_body(
+        self,
+        page_id: str,
+        zip_path: Path,
+        *,
+        force: bool = False,
+        zip_sha256: str = "",
+    ) -> None:
+        """解壓 ZIP，把 PDF／圖片等內容寫進詳細頁內容區。"""
+        if not force and await self._page_has_expanded_attachments(page_id, zip_sha256):
+            logger.info("頁面內容已展開附件，略過 %s", zip_path.name)
+            return
+
+        with tempfile.TemporaryDirectory(prefix="fpg_zip_") as tmp:
+            members = prepare_zip_members(zip_path, Path(tmp))
+            if not members:
+                logger.warning("ZIP 無可用內容 %s", zip_path)
+                return
+
+            children = build_attachment_heading_blocks(
+                zip_sha256=zip_sha256,
+                zip_name=zip_path.name,
+                member_count=len(members),
+            )
+            for member in members:
+                upload_id = await self.upload_file(
+                    member.path,
+                    filename=member.upload_filename,
+                    content_type=member.content_type,
+                )
+                children.append(build_media_block(member, upload_id))
+                await asyncio.sleep(NOTION_UPLOAD_PAUSE)
+
+            await self._clear_managed_attachment_blocks(page_id)
+            await self.request(
+                "PATCH",
+                f"/blocks/{page_id}/children",
+                version=self.file_upload_version,
+                json_body={"children": children},
+            )
+            await asyncio.sleep(NOTION_REQUEST_PAUSE)
+            logger.info(
+                "已展開寫入頁面附件內容 %s（%s 檔）",
+                zip_path.name,
+                len(members),
+            )
+
     async def upsert_case(self, record: CaseRecord) -> dict:
         today = date.today().isoformat()
         existing = await self.find_page(record.tndsalno, record.inqcnt)
@@ -243,15 +375,18 @@ class NotionArchiveService:
 
         has_attachment = bool(record.zip_path and Path(record.zip_path).exists())
         file_upload_id = None
+        zip_changed = True
         if has_attachment:
             zip_path = Path(record.zip_path)
             if record.zip_sha256 and record.zip_sha256 == existing_sha and existing:
                 logger.info(
-                    "ZIP 未變更，略過上傳 %s/%s", record.tndsalno, record.inqcnt
+                    "ZIP 未變更，略過屬性上傳 %s/%s", record.tndsalno, record.inqcnt
                 )
                 has_attachment = True
+                zip_changed = False
             else:
                 file_upload_id = await self.upload_zip(zip_path)
+                zip_changed = True
 
         status_name = "error" if record.status == "error" else (
             "updated" if existing else "new"
@@ -270,6 +405,7 @@ class NotionArchiveService:
             "標售案號": {
                 "title": [{"type": "text", "text": {"content": record.tndsalno}}]
             },
+            "案件類型": {"select": {"name": case_type_label(record)}},
             "廠區聯絡人": {"rich_text": rich_text(record.contact_display)},
             "公告次數": {"rich_text": rich_text(record.inqcnt)},
             "品名規格/標售數量": {"rich_text": rich_text(record.items_summary)},
@@ -319,7 +455,22 @@ class NotionArchiveService:
                     "properties": props,
                 },
             )
-        await asyncio.sleep(0.35)  # Notion ~3 req/s
+        await asyncio.sleep(NOTION_REQUEST_PAUSE)
+
+        if has_attachment and record.zip_path:
+            try:
+                await self.sync_attachment_page_body(
+                    page["id"],
+                    Path(record.zip_path),
+                    force=zip_changed,
+                    zip_sha256=record.zip_sha256 or "",
+                )
+            except Exception:
+                logger.exception(
+                    "寫入頁面內容附件失敗 %s/%s",
+                    record.tndsalno,
+                    record.inqcnt,
+                )
         return page
 
     async def upsert_many(self, records: list[CaseRecord]) -> list[dict]:
