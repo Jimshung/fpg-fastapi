@@ -1,8 +1,10 @@
 # scripts/
-#
-# ci/       CI helpers（例如 chromedriver fallback）
-# probes/   一次性探測腳本，非正式排程入口
-# generate_rest_client.py  雜項工具
-#
-# 日常歸檔請用：
-#   python -m app.scripts.run_archive
+
+- `probes/` — 可選 HTTP 探測（非正式排程）
+- `generate_rest_client.py` — 產生 REST Client 測試檔
+
+日常歸檔：
+
+```bash
+python -m app.scripts.run_archive
+```

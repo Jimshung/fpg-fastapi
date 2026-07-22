@@ -2,10 +2,10 @@
 description: Automation code must:
 globs: 
 ---
-- Use BrowserService for Selenium operations
-- Implement proper wait strategies
-- Handle captcha with CaptchaService
-- Use LoginService for authentication
-- Implement ResultProcessor for data handling
-- Follow the existing retry mechanisms
-- Use screenshot functionality for debugging
+- Prefer HTTP (`FpgHttpClient`) over browser automation
+- Handle captcha with `CaptchaService` (Azure OCR)
+- Parse HTML with `fpg_parser`; persist with `NotionArchiveService`
+- Filter mainland cases via `taiwan_case_filter` before Notion upsert
+- Entry point: `python -m app.scripts.run_archive`
+- Follow existing retry mechanisms (login OCR retries)
+- Do not reintroduce Selenium unless explicitly required for a probe

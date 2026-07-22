@@ -1,7 +1,5 @@
-import os
 from pydantic_settings import BaseSettings
 from functools import lru_cache
-from pydantic import validator
 from typing import Optional
 from loguru import logger
 
@@ -27,13 +25,7 @@ class Settings(BaseSettings):
     PASSWORD: str
     BASE_URL: str = "https://www.e-fpg.com.tw/"
     LOGIN_URL: str = "https://fpg.com.tw"
-    
-    # 瀏覽器設定
-    HEADLESS_MODE: bool = False
-    BROWSER_WINDOW_SIZE: str = "1920,1080"
-    IMPLICIT_WAIT: int = 10
-    CHROME_DRIVER_PATH: Optional[str] = None
-    
+
     # Telegram 設定
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
@@ -45,32 +37,15 @@ class Settings(BaseSettings):
     NOTION_VERSION: str = "2022-06-28"
     NOTION_FILE_UPLOAD_VERSION: str = "2026-03-11"
 
-    @validator('HEADLESS_MODE', pre=True)
-    def validate_headless_mode(cls, v, values):
-        """根據環境設定決定是否使用 headless 模式"""
-        # 如果明確設置了環境變數，優先使用環境變數的值
-        env_headless = os.getenv('HEADLESS_MODE')
-        if env_headless is not None:
-            logger.debug(f"從環境變數讀取 HEADLESS_MODE: {env_headless}")
-            return str(env_headless).lower() == 'true'
-            
-        # 如果是 GitHub Actions 環境，強制使用 headless 模式
-        if os.getenv('GITHUB_ACTIONS'):
-            logger.debug("檢測到 GitHub Actions 環境，使用 headless 模式")
-            return True
-            
-        # 如果是 production 環境，使用 headless 模式
-        if values.get('ENVIRONMENT') == 'production':
-            logger.debug("檢測到 production 環境，使用 headless 模式")
-            return True
-            
-        # 其他情況使用配置文件中的設定
-        logger.debug(f"使用默認設定: {v}")
-        return v
+    # 相容舊 .env（已不再使用瀏覽器）
+    HEADLESS_MODE: bool = True
+    CHROME_DRIVER_PATH: Optional[str] = None
+    BROWSER_WINDOW_SIZE: Optional[str] = None
+    IMPLICIT_WAIT: Optional[int] = None
 
     class Config:
         env_file = ".env"
-        case_sensitive = True  # 確保環境變數名稱大小寫敏感
+        case_sensitive = True
 
 @lru_cache()
 def get_settings():
@@ -82,4 +57,4 @@ def get_settings():
         raise
 
 settings = get_settings()
-logger.info(f"HEADLESS_MODE 設定為: {settings.HEADLESS_MODE}")
+logger.info("Settings loaded (HTTP archive mode)")

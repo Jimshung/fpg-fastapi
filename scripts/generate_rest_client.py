@@ -56,19 +56,12 @@ def generate_rest_client_file():
         "### 搜尋今天的標售公報",
         "GET http://localhost:8000/api/v1/today",
         "\n",
-        "### 獲取標售案件列表",
-        "GET http://localhost:8000/api/v1/tender/list",
-        "\n",
-        "### 獲取特定標售案件詳細資訊",
-        "GET http://localhost:8000/api/v1/tender/detail/{tender_no}",
-        "\n"
     ]
     
     # 添加其他 API 端點
     for path, methods in api_spec['paths'].items():
         # 跳過已經處理的路由
-        if path in ['/docs', '/redoc', '/openapi.json', '/api/v1/search', 
-                   '/api/v1/tender/list', '/api/v1/tender/detail/{tender_no}',
+        if path in ['/docs', '/redoc', '/openapi.json', '/api/v1/search',
                    '/health', '/api/v1/login', '/api/v1/today']:
             continue
             

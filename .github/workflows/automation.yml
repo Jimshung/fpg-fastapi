@@ -1,11 +1,13 @@
-name: FPG 自動化流程 (Python)
+name: FPG 標售歸檔 (HTTP → Notion)
+
 on:
   schedule:
-    - cron: '0 0 * * 1-5'
+    # 週一至週五 00:00 UTC ≈ 台北 08:00
+    - cron: "0 0 * * 1-5"
   workflow_dispatch:
 
 jobs:
-  run-automation:
+  run-archive:
     runs-on: ubuntu-latest
     env:
       BASE_URL: ${{ secrets.BASE_URL }}
@@ -16,10 +18,12 @@ jobs:
       AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      CHROME_DRIVER_PATH: /usr/local/bin/chromedriver
-      HEADLESS_MODE: true
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+      ENABLE_TELEGRAM_NOTIFY: "true"
       ENVIRONMENT: production
-      TZ: 'Asia/Taipei'
+      HEADLESS_MODE: "true"
+      TZ: Asia/Taipei
     timeout-minutes: 30
 
     steps:
@@ -28,149 +32,97 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
-          cache: 'pip'
-
-      - name: Setup Chrome and ChromeDriver
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable curl unzip
-
-          CHROME_VERSION=$(google-chrome --version | awk '{print $3}')
-          echo "Chrome version from apt: ${CHROME_VERSION}"
-
-          ZIP_PATH="${RUNNER_TEMP}/chromedriver-linux64.zip"
-          # 新版 Chrome（約 121+）使用 storage.googleapis.com；舊的 edgedl URL 常 404
-          PRIMARY_URL="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chromedriver-linux64.zip"
-
-          if curl -fsSL -o "$ZIP_PATH" "$PRIMARY_URL"; then
-            echo "Downloaded chromedriver from primary URL (chrome-for-testing-public)."
-          else
-            echo "Primary URL failed; resolving from Chrome for Testing known-good JSON..."
-            FALLBACK_URL=$(python3 "${GITHUB_WORKSPACE}/scripts/ci/ci_resolve_chromedriver_url.py")
-            curl -fsSL -o "$ZIP_PATH" "$FALLBACK_URL"
-          fi
-
-          unzip -o "$ZIP_PATH" -d "${RUNNER_TEMP}/chromedriver-extract"
-          sudo mv "${RUNNER_TEMP}/chromedriver-extract/chromedriver-linux64/chromedriver" /usr/local/bin/
-          sudo chmod +x /usr/local/bin/chromedriver
-
-          google-chrome --version
-          chromedriver --version
+          python-version: "3.9"
+          cache: pip
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install psutil
           pip install -r requirements.txt
 
-      - name: Run automation script
-        id: automation
+      - name: Run archive (today, Taiwan only)
+        id: archive
         run: |
-          # 記錄開始時間
+          set -o pipefail
           START_TIME=$(date +%s)
 
-          # 清理並重新創建目錄
-          rm -rf app/utils/screenshots app/metrics
-          mkdir -p app/utils/screenshots app/metrics
+          mkdir -p app/utils/screenshots/archive_downloads
 
-          # 執行腳本並收集完整日誌
-          python -m app.scripts.run_automation 2>&1 | tee automation.log
+          # 預設略過桌面 view 調整，避免 Views API 偶發失敗中斷歸檔
+          python -m app.scripts.run_archive --skip-notion-view 2>&1 | tee archive.log
+          EXIT_CODE=${PIPESTATUS[0]}
 
-          # 計算執行時間（修改這部分）
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
           echo "EXECUTION_TIME=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_ENV"
           echo "EXECUTION_DURATION=$DURATION" >> "$GITHUB_ENV"
 
-          # GitHub Actions 完整日誌輸出
           {
             echo "log<<EOF"
-            cat automation.log
+            cat archive.log
             echo "EOF"
-          } >> $GITHUB_OUTPUT
+          } >> "$GITHUB_OUTPUT"
 
-          # Telegram 日誌格式化
           {
             echo "telegram_log<<EOF"
-            if [ $(grep -c "app.services" automation.log) -le 20 ]; then
-              grep "app.services" automation.log
+            if [ "$(grep -cE '歸檔|SKIP|Notion|完成|ERROR|成功|失敗' archive.log || true)" -le 30 ]; then
+              grep -E '歸檔|SKIP|Notion|完成|ERROR|成功|失敗|待擷取|台灣案' archive.log || true
             else
               {
-                echo "【執行開始】"
-                grep "app.services" automation.log | head -n 5
+                echo "【摘要】"
+                grep -E '台灣案篩選|待擷取|完成：' archive.log || true
                 echo "..."
-                echo "【執行結束】"
-                grep "app.services" automation.log | tail -n 5
+                grep -E '^.*\[(OK|ERR|SKIP)\]' archive.log | tail -n 15 || true
               }
             fi
             echo "EOF"
-          } >> $GITHUB_OUTPUT
+          } >> "$GITHUB_OUTPUT"
 
-          # 修改執行狀態判斷邏輯
-          if grep -q "自動化流程完成" automation.log && \
-             ! grep -q "ERROR:" automation.log; then
-            echo "status=success" >> $GITHUB_OUTPUT
+          if [ "$EXIT_CODE" -eq 0 ] && grep -q "完成：" archive.log; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
           else
-            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+            exit "$EXIT_CODE"
           fi
 
       - name: 顯示執行資訊
+        if: always()
         run: |
           echo "============執行資訊============"
           echo "執行時間: $EXECUTION_TIME"
           echo "執行耗時: $EXECUTION_DURATION 秒"
           echo "觸發方式: ${{ github.event_name }}"
-          echo "執行狀態: ${{ steps.automation.outputs.status }}"
+          echo "執行狀態: ${{ steps.archive.outputs.status }}"
           echo "================================"
 
       - name: 發送 Telegram 通知
         if: always()
         uses: appleboy/telegram-action@master
-        env:
-          EXECUTION_TIME: ${{ env.EXECUTION_TIME }}
-          EXECUTION_DURATION: ${{ env.EXECUTION_DURATION }}
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           format: markdown
           message: |
-            *FPG 自動化流程執行報告* 🤖
+            *FPG 標售歸檔報告* 📦
 
             📊 *執行資訊*
-            執行狀態: ${{ steps.automation.outputs.status == 'success' && '✅ 成功' || '❌ 失敗' }}
+            執行狀態: ${{ steps.archive.outputs.status == 'success' && '✅ 成功' || '❌ 失敗' }}
             執行時間: ${{ env.EXECUTION_TIME }}
             執行耗時: ${{ env.EXECUTION_DURATION }} 秒
             觸發方式: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
 
             🔍 *執行日誌*:
             ```
-            ${{ steps.automation.outputs.telegram_log }}
+            ${{ steps.archive.outputs.telegram_log }}
             ```
 
             [📋 完整記錄](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-      - name: Upload results
+      - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: search-results
+          name: archive-logs
           path: |
-            app/utils/screenshots/
-            automation.log
-            error.log
+            archive.log
           retention-days: 5
-
-      - name: 清理舊檔案
-        run: |
-          python -c "
-          from app.utils.cleanup import CleanupService
-          import asyncio
-
-          async def cleanup():
-              cleaner = CleanupService('app/utils/screenshots')
-              await cleaner.cleanup_old_files()
-
-          asyncio.run(cleanup())
-          "
