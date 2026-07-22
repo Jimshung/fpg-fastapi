@@ -48,7 +48,7 @@ jobs:
             echo "Downloaded chromedriver from primary URL (chrome-for-testing-public)."
           else
             echo "Primary URL failed; resolving from Chrome for Testing known-good JSON..."
-            FALLBACK_URL=$(python3 "${GITHUB_WORKSPACE}/scripts/ci_resolve_chromedriver_url.py")
+            FALLBACK_URL=$(python3 "${GITHUB_WORKSPACE}/scripts/ci/ci_resolve_chromedriver_url.py")
             curl -fsSL -o "$ZIP_PATH" "$FALLBACK_URL"
           fi
 

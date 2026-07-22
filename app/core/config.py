@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     TELEGRAM_CHAT_ID: Optional[str] = None
     ENABLE_TELEGRAM_NOTIFY: bool = True
 
+    # Notion（標售案件歸檔）
+    NOTION_TOKEN: Optional[str] = None
+    NOTION_DATABASE_ID: Optional[str] = None
+    NOTION_VERSION: str = "2022-06-28"
+    NOTION_FILE_UPLOAD_VERSION: str = "2026-03-11"
+
     @validator('HEADLESS_MODE', pre=True)
     def validate_headless_mode(cls, v, values):
         """根據環境設定決定是否使用 headless 模式"""

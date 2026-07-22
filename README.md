@@ -1,186 +1,101 @@
-# FPG 自動化流程
+# FPG 標售案件歸檔
 
-自動化搜尋和處理 FPG 相關資料的工具。
+以 **HTTP** 登入 e-fpg 標售市集，擷取當日（台灣）公告案件與附件，寫入 **Notion**；可選 Telegram 通知。不再依賴模擬點選作為主路徑。
 
-## 功能特點
+## 功能
 
-- 🤖 自動化登入和搜尋
-- 📊 資料擷取和處理
-- 📱 Telegram 通知整合
-- 🔄 GitHub Actions 自動執行
-- 📝 REST Client API 測試支援
+- HTTP 登入（Azure OCR 驗證碼）
+- 依公告日搜尋標售公報、分頁彙整
+- 台灣案篩選（排除大陸案）
+- 讀取標售詢價單／報價明細重點欄位
+- 下載 ZIP 附件 → Notion upsert（SHA-256 去重）
+- GitHub Actions 可排程（舊 Selenium 自動化仍在，預計下一階段移除）
 
 ## 環境需求
 
-### Python 版本
-
-- Python 3.9.18
-- 建議使用 pyenv 進行版本管理：`pyenv install 3.9.18`
-- 或使用 Homebrew：`brew install python@3.9`
-
-## 環境設置
-
-### 1. 虛擬環境設置
-
-確認並設置 Python 虛擬環境：
+- Python 3.9+
+- 建議虛擬環境：`fpg_venv`
 
 ```bash
-# 檢查虛擬環境是否存在
-ls -la | grep fpg_venv
-
-# 如果不存在，建立新的虛擬環境
-python -m venv fpg_venv
-
-# 啟動虛擬環境
+python3 -m venv fpg_venv
 source fpg_venv/bin/activate
-
-# 確認 Python 解釋器位置
-which python  # 應顯示 fpg_venv 中的 Python 路徑
-```
-
-### 2. 安裝依賴
-
-```bash
 pip install -r requirements.txt
+cp .env.example .env   # 再填入實際值
 ```
 
-### 3. ChromeDriver 設定 (本機測試用)
+## 環境變數（`.env`）
 
-確保 Chrome 瀏覽器和 ChromeDriver 版本相匹配：
+| 變數 | 用途 |
+|------|------|
+| `USERNAME` / `PASSWORD` | e-fpg 帳密 |
+| `LOGIN_URL` | 登入頁 URL |
+| `AZURE_ENDPOINT` / `AZURE_API_KEY` | 驗證碼 OCR |
+| `NOTION_TOKEN` / `NOTION_DATABASE_ID` | Notion 歸檔 |
+| `NOTION_VERSION` | 預設 `2022-06-28` |
+| `NOTION_FILE_UPLOAD_VERSION` | 預設 `2026-03-11`（上傳／Views） |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | 可選通知 |
+| `ENABLE_TELEGRAM_NOTIFY` | 是否啟用 Telegram |
+
+## 日常執行（建議）
 
 ```bash
-# 檢查 Chrome 和 ChromeDriver 版本
-google-chrome --version
-chromedriver --version
+# 今天公告 → 僅台灣案 → Notion
+python -m app.scripts.run_archive
 
-# 如果版本不匹配，更新 ChromeDriver
-brew upgrade chromedriver
+# 指定日期
+python -m app.scripts.run_archive --date 2026/07/22
 
-# 如果更新後仍有問題，可以重新安裝
-brew uninstall chromedriver && brew install chromedriver
+# 試跑前 N 案
+python -m app.scripts.run_archive --limit 3
 
-# 確認 ChromeDriver 路徑和權限
-ls -l /opt/homebrew/bin/chromedriver
-chmod +x /opt/homebrew/bin/chromedriver
+# 若要連大陸案一併寫入（預設不會）
+python -m app.scripts.run_archive --include-mainland
 ```
 
-### 4. Python 環境重置（如遇到問題時使用）
+Notion 桌面表格第一眼欄位：標售案號、廠區聯絡人、公告次數、品名規格／標售數量、提貨地點、公告日、報價截止日、有附件。
 
-如果遇到 Python 相關的問題（如 segmentation fault），可以嘗試以下步驟：
+## 專案結構（重點）
 
-```bash
-# 停用當前的虛擬環境
-deactivate
-
-# 移除 pyenv 的 Python 版本
-pyenv uninstall 3.9.18
-
-# 確保使用 Homebrew 的 Python
-brew unlink python@3.9 && brew link python@3.9 --force
-
-# 移除現有的虛擬環境
-rm -rf fpg_venv
-
-# 使用 Homebrew 的 Python 創建新的虛擬環境
-/opt/homebrew/bin/python3.9 -m venv fpg_venv
-
-# 啟動虛擬環境
-source fpg_venv/bin/activate
-
-# 升級 pip
-python -m pip install --upgrade pip
-
-# 安裝依賴
-pip install -r requirements.txt
+```
+app/
+  scripts/run_archive.py          # 歸檔入口
+  scripts/run_automation.py       # 舊 Selenium 轉報價流程（待移除）
+  services/
+    fpg_http_client.py            # HTTP session
+    fpg_parser.py                 # HTML 解析
+    notion_archive_service.py     # Notion upsert
+    taiwan_case_filter.py         # 台灣案篩選
+  models/case_record.py
+scripts/
+  probes/                         # 探測用，非正式排程
+  ci/                             # CI helpers
+  generate_rest_client.py
 ```
 
-### 5. 疑難排解
-
-如果遇到自動化腳本執行問題，可以嘗試以下步驟：
-
-```bash
-# 1. 清除 Python 快取文件
-find . -name "*.pyc" -delete
-find . -name "__pycache__" -type d -exec rm -r {} +
-
-# 2. 使用 PYTHONUNBUFFERED 執行腳本（可以看到即時日誌輸出）
-PYTHONUNBUFFERED=1 python -m app.scripts.run_automation
-```
-
-### 6. API 服務重啟流程
-
-```bash
-# 1. 檢查當前運行的 uvicorn 進程
-ps aux | grep uvicorn
-
-# 2. 停止現有的 uvicorn 進程（如果有的話）
-# 假設 PID 為 1234
-kill -9 1234
-
-# 3. 重新啟動 API 服務
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-## 執行方式
-
-### 本地執行
-
-1. **自動化腳本**（主要使用）:
+## 舊路徑（Selenium）
 
 ```bash
 python -m app.scripts.run_automation
 ```
 
-2. **API 服務**（開發測試用）:
+此路徑仍會開 Chrome／模擬點選做「轉報價」。產品方向已改為 **讀取＋Notion 歸檔**，Selenium 相關程式（`LoginService`、`selenium_utils`、ChromeDriver CI 等）規劃於**下一階段刪除或改為可選**，請以 `run_archive` 為主。
+
+本機探測（需 ChromeDriver）仍可放在 `scripts/probes/`，非正式流程。
+
+## API（開發用）
 
 ```bash
-# 啟動 FastAPI 服務
 uvicorn app.main:app --reload
-
-# 生成最新的 API 測試檔案
-python scripts/generate_rest_client.py
+python scripts/generate_rest_client.py   # 產生 tests/http/test.http
 ```
 
-### API 測試
+## GitHub Actions
 
-本專案使用 VSCode REST Client 擴充功能進行 API 測試：
+- Workflow：`.github/workflows/automation.yml`
+- 目前仍跑 `run_automation`（Selenium）；之後應改為 `run_archive` 並拿掉 ChromeDriver 安裝步驟
 
-1. 在 VSCode 中安裝 "REST Client" 擴充功能
-2. 啟動 FastAPI 服務
-3. 執行 `python scripts/generate_rest_client.py` 生成最新的 API 測試檔案
-4. 打開 `tests/http/test.http`
-5. 點擊每個請求上方的 "Send Request" 進行測試
+## 注意
 
-可用的 API 端點：
-
-- GET `/health`: 健康檢查
-- POST `/api/v1/login`: 執行登入
-- POST `/api/v1/search`: 搜尋標售公報
-- GET `/api/v1/today`: 搜尋今天的標售公報
-- GET `/api/v1/tender/list`: 獲取標售案件列表
-- GET `/api/v1/tender/detail/{tender_no}`: 獲取特定標售案件詳細資訊
-
-### GitHub Actions
-
-- 自動執行：每個工作日 (週一至週五) 的 00:30 (UTC)
-- 手動觸發：通過 GitHub Actions 介面
-
-## 環境變數
-
-請確保 `.env` 檔案包含必要的設定：
-
-- BASE_URL
-- LOGIN_URL
-- USERNAME
-- PASSWORD
-- AZURE_ENDPOINT
-- AZURE_API_KEY
-- TELEGRAM_BOT_TOKEN
-- TELEGRAM_CHAT_ID
-
-## 注意事項
-
-- 執行前請確保虛擬環境已啟動
-- 確保所有環境變數都已正確設置
-- 檢查 Chrome 和 ChromeDriver 版本相符
-- API 測試前確保 FastAPI 服務正在運行
+- 勿把 `.env`、截圖、下載 ZIP commit 進 repo（已在 `.gitignore`）
+- OCR 不穩時會自動重試登入
+- 標案管理尚無「填寫報價單」時，仍會用公報摘要寫入 Notion（無附件）
