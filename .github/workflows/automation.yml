@@ -1,4 +1,4 @@
-name: FPG 標售歸檔 (HTTP → Notion)
+name: FPG / PCC 歸檔 (HTTP → Notion)
 
 on:
   schedule:
@@ -11,6 +11,7 @@ on:
 
 jobs:
   run-archive:
+    name: FPG 標售歸檔
     runs-on: ubuntu-latest
     env:
       BASE_URL: ${{ secrets.BASE_URL }}
@@ -128,4 +129,104 @@ jobs:
           name: archive-logs
           path: |
             archive.log
+          retention-days: 5
+
+  run-pcc-archive:
+    name: PCC 財物變賣歸檔
+    runs-on: ubuntu-latest
+    env:
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      PCC_NOTION_DATABASE_ID: ${{ secrets.PCC_NOTION_DATABASE_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      ENABLE_TELEGRAM_NOTIFY: "true"
+      ENVIRONMENT: production
+      TZ: Asia/Taipei
+      # FPG 設定類仍可能被 Settings 要求
+      USERNAME: ${{ secrets.USERNAME }}
+      PASSWORD: ${{ secrets.PASSWORD }}
+      LOGIN_URL: ${{ secrets.LOGIN_URL }}
+      BASE_URL: ${{ secrets.BASE_URL }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run PCC archive (deadline window)
+        id: pcc
+        run: |
+          set -o pipefail
+          START_TIME=$(date +%s)
+
+          python -m app.scripts.run_pcc_archive --days 7 --skip-notion-view 2>&1 | tee pcc_archive.log
+          EXIT_CODE=${PIPESTATUS[0]}
+
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          echo "PCC_EXECUTION_TIME=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_ENV"
+          echo "PCC_EXECUTION_DURATION=$DURATION" >> "$GITHUB_ENV"
+
+          {
+            echo "telegram_log<<EOF"
+            if [ "$(grep -cE '歸檔|Notion|完成|ERROR|成功|失敗|待擷取' pcc_archive.log || true)" -le 30 ]; then
+              grep -E '歸檔|Notion|完成|ERROR|成功|失敗|待擷取|PCC' pcc_archive.log || true
+            else
+              {
+                echo "【摘要】"
+                grep -E '截止投標|待擷取|完成：' pcc_archive.log || true
+                echo "..."
+                grep -E '^.*\[(OK|ERR)\]' pcc_archive.log | tail -n 15 || true
+              }
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$EXIT_CODE" -eq 0 ] && grep -q "完成：" pcc_archive.log; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+            exit "$EXIT_CODE"
+          fi
+
+      - name: 發送 Telegram 通知 (PCC)
+        if: always()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          message: |
+            *PCC 財物變賣歸檔報告* 🏛️
+
+            📊 *執行資訊*
+            執行狀態: ${{ steps.pcc.outputs.status == 'success' && '✅ 成功' || '❌ 失敗' }}
+            執行時間: ${{ env.PCC_EXECUTION_TIME }}
+            執行耗時: ${{ env.PCC_EXECUTION_DURATION }} 秒
+            觸發方式: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
+
+            🔍 *執行日誌*:
+            ```
+            ${{ steps.pcc.outputs.telegram_log }}
+            ```
+
+            [📋 完整記錄](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+      - name: Upload PCC logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pcc-archive-logs
+          path: |
+            pcc_archive.log
           retention-days: 5

@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # Notion（標售案件歸檔）
     NOTION_TOKEN: Optional[str] = None
     NOTION_DATABASE_ID: Optional[str] = None
+    # 政府財物變賣（獨立 database，勿與 FPG 混用）
+    PCC_NOTION_DATABASE_ID: Optional[str] = None
     NOTION_VERSION: str = "2022-06-28"
     NOTION_FILE_UPLOAD_VERSION: str = "2026-03-11"
 
