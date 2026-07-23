@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import calendar
 import json
 import logging
 import tempfile
@@ -44,6 +45,47 @@ PRIORITY_COLUMNS = [
 
 def case_type_label(record: CaseRecord) -> str:
     return "競標" if getattr(record, "bid_channel", "") == "cmp" else "一般標售"
+
+
+def month_view_name(year: int, month: int) -> str:
+    """例如 2026/8 →「8 月」。"""
+    return f"{month} 月"
+
+
+def month_date_bounds(year: int, month: int) -> tuple[str, str]:
+    """回傳該月公告日篩選用的起迄（含首尾日，ISO）。"""
+    start = date(year, month, 1)
+    end = date(year, month, calendar.monthrange(year, month)[1])
+    return start.isoformat(), end.isoformat()
+
+
+def announce_month_filter(
+    year: int,
+    month: int,
+    *,
+    property_ref: str = "公告日",
+) -> dict:
+    """依公告日切月份。property_ref 建議傳 property id，較穩定。"""
+    start, end = month_date_bounds(year, month)
+    return {
+        "and": [
+            {"property": property_ref, "date": {"on_or_after": start}},
+            {"property": property_ref, "date": {"on_or_before": end}},
+        ]
+    }
+
+
+def is_month_view_name(name: str) -> bool:
+    """例如「7 月」「12 月」。"""
+    parts = (name or "").strip().split()
+    return len(parts) == 2 and parts[0].isdigit() and parts[1] == "月"
+
+
+def next_calendar_month(today: date | None = None) -> tuple[int, int]:
+    base = today or date.today()
+    if base.month == 12:
+        return base.year + 1, 1
+    return base.year, base.month + 1
 
 
 def normalize_db_id(raw: str) -> str:
@@ -489,8 +531,160 @@ class NotionArchiveService:
                 record.status = "error"
         return pages
 
+    def _table_property_configs(self, name_to_id: dict[str, str]) -> list[dict]:
+        configs: list[dict] = []
+        for name in PRIORITY_COLUMNS:
+            entry: dict = {"property_id": name_to_id[name], "visible": True}
+            if name in ("公告日", "報價截止日"):
+                entry["date_format"] = "year_month_day"
+                entry["time_format"] = "hidden"
+            configs.append(entry)
+        priority_ids = {name_to_id[n] for n in PRIORITY_COLUMNS}
+        for name, prop_id in name_to_id.items():
+            if prop_id not in priority_ids:
+                configs.append({"property_id": prop_id, "visible": False})
+        return configs
+
+    async def _list_view_details(self, *, version: str) -> list[dict]:
+        listed = await self.request(
+            "GET",
+            f"/views?database_id={self.database_id}",
+            version=version,
+        )
+        details: list[dict] = []
+        for view in listed.get("results", []):
+            detail = await self.request(
+                "GET",
+                f"/views/{view['id']}",
+                version=version,
+            )
+            details.append(detail)
+        return details
+
+    async def _upsert_table_view(
+        self,
+        *,
+        version: str,
+        data_source_id: str,
+        name_to_id: dict[str, str],
+        configs: list[dict],
+        view_name: str,
+        filter_body: dict | None = None,
+        existing_by_name: dict[str, dict],
+        rename_from: set[str] | None = None,
+        sort_property: str | None = None,
+        require_filter: bool = False,
+    ) -> dict:
+        """建立或更新指定名稱的 table view。
+
+        - filter_body=None：不送 filter 欄位（保留既有篩選，避免弄壞桌面表格）
+        - require_filter=True：寫入後必須讀回非空 filter，否則重試／報錯
+        """
+        sort_prop = (
+            sort_property
+            or name_to_id.get("報價截止日")
+            or name_to_id["公告日"]
+        )
+        payload: dict = {
+            "name": view_name,
+            "sorts": [{"property": sort_prop, "direction": "ascending"}],
+            "configuration": {"type": "table", "properties": configs},
+        }
+        if filter_body is not None:
+            payload["filter"] = filter_body
+
+        existing = existing_by_name.get(view_name)
+        if not existing and rename_from:
+            for old_name in rename_from:
+                candidate = existing_by_name.get(old_name)
+                if not candidate or candidate.get("type") != "table":
+                    continue
+                # 絕不可把「7 月」這類月 view 改名成桌面表格
+                cand_name = candidate.get("name") or old_name
+                if is_month_view_name(cand_name):
+                    continue
+                existing = candidate
+                break
+
+        if existing:
+            view = await self.request(
+                "PATCH",
+                f"/views/{existing['id']}",
+                version=version,
+                json_body=payload,
+            )
+            logger.info("已更新 Notion view「%s」", view_name)
+        else:
+            view = await self.request(
+                "POST",
+                "/views",
+                version=version,
+                json_body={
+                    "database_id": self.database_id,
+                    "data_source_id": data_source_id,
+                    "type": "table",
+                    **payload,
+                },
+            )
+            logger.info("已建立 Notion view「%s」", view_name)
+
+        if require_filter:
+            view_id = view.get("id") or (existing or {}).get("id")
+            verified = await self.request(
+                "GET", f"/views/{view_id}", version=version
+            )
+            if not verified.get("filter"):
+                # 少數情況 PATCH 未帶上 filter；強制再寫一次
+                await self.request(
+                    "PATCH",
+                    f"/views/{view_id}",
+                    version=version,
+                    json_body={"filter": filter_body},
+                )
+                verified = await self.request(
+                    "GET", f"/views/{view_id}", version=version
+                )
+            if not verified.get("filter"):
+                raise RuntimeError(
+                    f"Notion view「{view_name}」公告日篩選寫入失敗（filter 仍為空）"
+                )
+            view = verified
+
+        existing_by_name[view_name] = view
+        return view
+
+    async def ensure_month_views(
+        self,
+        *,
+        version: str,
+        data_source_id: str,
+        name_to_id: dict[str, str],
+        configs: list[dict],
+        existing_by_name: dict[str, dict],
+        today: date | None = None,
+    ) -> None:
+        """確保「本月」「下個月」依公告日篩選的 table view 存在。"""
+        base = today or date.today()
+        announce_prop = name_to_id["公告日"]
+        months = [(base.year, base.month), next_calendar_month(base)]
+        for year, month in months:
+            name = month_view_name(year, month)
+            await self._upsert_table_view(
+                version=version,
+                data_source_id=data_source_id,
+                name_to_id=name_to_id,
+                configs=configs,
+                view_name=name,
+                filter_body=announce_month_filter(
+                    year, month, property_ref=announce_prop
+                ),
+                existing_by_name=existing_by_name,
+                sort_property=announce_prop,
+                require_filter=True,
+            )
+
     async def configure_desktop_table(self) -> None:
-        """把桌面表格可見欄位排成第一眼順序。"""
+        """桌面表格欄位順序 + 本月／下月公告日 view。"""
         views_version = self.file_upload_version
         db = await self.request(
             "GET",
@@ -510,49 +704,34 @@ class NotionArchiveService:
         if missing:
             logger.warning("桌面表格缺少欄位，略過 view 調整: %s", missing)
             return
-
-        configs: list[dict] = []
-        for name in PRIORITY_COLUMNS:
-            entry: dict = {"property_id": name_to_id[name], "visible": True}
-            if name in ("公告日", "報價截止日"):
-                entry["date_format"] = "year_month_day"
-                entry["time_format"] = "hidden"
-            configs.append(entry)
-        priority_ids = {name_to_id[n] for n in PRIORITY_COLUMNS}
-        for name, prop_id in name_to_id.items():
-            if prop_id not in priority_ids:
-                configs.append({"property_id": prop_id, "visible": False})
-
-        listed = await self.request(
-            "GET",
-            f"/views?database_id={self.database_id}",
-            version=views_version,
-        )
-        for view in listed.get("results", []):
-            detail = await self.request(
-                "GET",
-                f"/views/{view['id']}",
-                version=views_version,
-            )
-            if detail.get("type") != "table":
-                continue
-            name = detail.get("name") or ""
-            if name not in ("桌面表格", "Untitled", "", "Table"):
-                continue
-            await self.request(
-                "PATCH",
-                f"/views/{view['id']}",
-                version=views_version,
-                json_body={
-                    "name": "桌面表格",
-                    "sorts": [
-                        {
-                            "property": name_to_id["報價截止日"],
-                            "direction": "ascending",
-                        }
-                    ],
-                    "configuration": {"type": "table", "properties": configs},
-                },
-            )
-            logger.info("已更新桌面表格欄位順序")
+        if "公告日" not in name_to_id:
+            logger.warning("缺少公告日欄位，略過月 view")
             return
+
+        configs = self._table_property_configs(name_to_id)
+        details = await self._list_view_details(version=views_version)
+        # 空名稱不進索引，避免誤把月 view 改成桌面表格
+        existing_by_name = {
+            name: detail
+            for detail in details
+            if (name := (detail.get("name") or "").strip())
+        }
+
+        await self._upsert_table_view(
+            version=views_version,
+            data_source_id=data_source_id,
+            name_to_id=name_to_id,
+            configs=configs,
+            view_name="桌面表格",
+            filter_body=None,  # 不送 filter，保留「全部案件」
+            existing_by_name=existing_by_name,
+            rename_from={"Untitled", "Table"},
+            require_filter=False,
+        )
+        await self.ensure_month_views(
+            version=views_version,
+            data_source_id=data_source_id,
+            name_to_id=name_to_id,
+            configs=configs,
+            existing_by_name=existing_by_name,
+        )

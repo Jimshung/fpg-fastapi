@@ -2,8 +2,11 @@ name: FPG 標售歸檔 (HTTP → Notion)
 
 on:
   schedule:
-    # 週一至週五 00:00 UTC ≈ 台北 08:00
+    # GitHub cron 用 UTC；台北 = UTC+8
+    # 週一至週五 台北 08:00
     - cron: "0 0 * * 1-5"
+    # 週一至週五 台北 16:00
+    - cron: "0 8 * * 1-5"
   workflow_dispatch:
 
 jobs:

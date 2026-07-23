@@ -54,7 +54,7 @@ python -m app.scripts.run_archive --limit 3
 python -m app.scripts.run_archive --include-mainland
 ```
 
-Notion 桌面表格第一眼欄位：標售案號、案件類型（一般標售／競標）、廠區聯絡人、品名規格／標售數量、提貨地點、公告日、報價截止日、有附件（公告次數僅詳細頁顯示）。
+Notion 桌面表格第一眼欄位：標售案號、案件類型（一般標售／競標）、廠區聯絡人、品名規格／標售數量、提貨地點、公告日、報價截止日、有附件（公告次數僅詳細頁顯示）。歸檔時會自動確保「本月」「下個月」view（依公告日區間篩選）。
 
 ## 專案結構（重點）
 
@@ -88,7 +88,7 @@ uvicorn app.main:app --reload
 ## GitHub Actions
 
 - Workflow：`.github/workflows/automation.yml`
-- 排程：週一–五 00:00 UTC（約台北 08:00）
+- 排程：週一–五 台北 08:00、16:00（UTC `0 0` / `0 8`）
 - 執行：`python -m app.scripts.run_archive --skip-notion-view`
 - 無 Chrome；需 Repository Secrets 含 `NOTION_TOKEN`、`NOTION_DATABASE_ID`
 
