@@ -6,7 +6,6 @@ import re
 import sys
 import time
 from pathlib import Path
-from urllib.parse import urljoin
 
 import aiohttp
 
@@ -14,17 +13,20 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv
+
 load_dotenv(ROOT / ".env")
 
 from app.core.config import settings
 from app.services.captcha_service import CaptchaService
+from app.services.fpg_urls import CAPTCHA_PATH, LOGIN_SERVLET_PATH, fpg_base_url, fpg_url
 
 OUT = ROOT / "app" / "utils" / "screenshots" / "probe"
 OUT.mkdir(parents=True, exist_ok=True)
 
 LOGIN_PAGE = settings.LOGIN_URL
-CAPTCHA_URL = "https://www.e-fpg.com.tw/j202/Captcha.do"
-POST_URL = "https://www.e-fpg.com.tw/j202/servlet/com.fpg.j202.Cj202000"
+CAPTCHA_URL = fpg_url(CAPTCHA_PATH)
+POST_URL = fpg_url(LOGIN_SERVLET_PATH)
+ORIGIN = fpg_base_url()
 
 
 def sniff_success(html: str, final_url: str) -> dict:
@@ -49,8 +51,10 @@ async def fetch_captcha(session: aiohttp.ClientSession) -> bytes:
     async with session.get(url) as resp:
         resp.raise_for_status()
         data = await resp.read()
-        print(f"[captcha] GET {url} -> {resp.status} {len(data)} bytes "
-              f"ct={resp.headers.get('Content-Type')}")
+        print(
+            f"[captcha] GET {url} -> {resp.status} {len(data)} bytes "
+            f"ct={resp.headers.get('Content-Type')}"
+        )
         return data
 
 
@@ -66,7 +70,7 @@ async def login_once(session: aiohttp.ClientSession, captcha_text: str) -> dict:
     }
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": "https://www.e-fpg.com.tw",
+        "Origin": ORIGIN,
         "Referer": LOGIN_PAGE,
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -79,7 +83,6 @@ async def login_once(session: aiohttp.ClientSession, captcha_text: str) -> dict:
         info = sniff_success(html, str(resp.url))
         info["status"] = resp.status
         info["set_cookie"] = resp.headers.getall("Set-Cookie", [])
-        # save html snippet without dumping secrets repeatedly
         (OUT / "http_login_response.html").write_text(html, encoding="utf-8")
         return info
 
@@ -89,17 +92,13 @@ async def inspect_login_page(session: aiohttp.ClientSession) -> None:
         html = await resp.text(errors="replace")
         print(f"[page] GET {LOGIN_PAGE} -> {resp.status}")
         print(f"[page] cookies after GET: {list(session.cookie_jar)}")
-        # form action / hidden fields
         actions = re.findall(r'<form[^>]*action=["\']([^"\']*)["\'][^>]*>', html, re.I)
-        hiddens = re.findall(
-            r'<input[^>]*type=["\']hidden["\'][^>]*>', html, re.I
-        )
+        hiddens = re.findall(r'<input[^>]*type=["\']hidden["\'][^>]*>', html, re.I)
         names = re.findall(r'name=["\']([^"\']+)["\']', " ".join(hiddens), re.I)
         values = re.findall(r'value=["\']([^"\']*)["\']', " ".join(hiddens), re.I)
         print(f"[page] form actions: {actions}")
         print(f"[page] hidden names: {names}")
         print(f"[page] hidden values: {values}")
-        # captcha img src
         caps = re.findall(r'src=["\']([^"\']*Captcha[^"\']*)["\']', html, re.I)
         print(f"[page] captcha srcs: {caps}")
         (OUT / "http_login_page.html").write_text(html, encoding="utf-8")
@@ -136,13 +135,11 @@ async def main() -> None:
                 print("-> possible success (no login form)")
                 break
             print("-> still on login-like page / unknown, stop or retry")
-            # if password wrong, no point retrying forever
             if info["markers"]["login_fail"]:
                 break
         else:
             print("all attempts exhausted")
 
-        # dump cookie values keys only
         print("\nfinal cookies:")
         for cookie in session.cookie_jar:
             print(f"  {cookie.key}={cookie.value[:20]}... domain={cookie.get('domain')}")

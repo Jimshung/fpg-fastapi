@@ -26,20 +26,20 @@ from app.services.fpg_parser import (
     parse_inquiry_form,
     parse_quote_form,
 )
+from app.services.fpg_urls import (
+    BID_PAGE_PATH,
+    BID_POST_PATH,
+    BULLETIN_PAGE_PATH,
+    BULLETIN_POST_PATH,
+    CAPTCHA_PATH,
+    CMP_BID_PAGE_PATH,
+    CMP_BID_POST_PATH,
+    LOGIN_SERVLET_PATH,
+    fpg_base_url,
+    fpg_url,
+)
 
 logger = logging.getLogger(__name__)
-
-BASE = "https://www.e-fpg.com.tw"
-LOGIN_SERVLET = f"{BASE}/j202/servlet/com.fpg.j202.Cj202000"
-CAPTCHA_URL = f"{BASE}/j202/Captcha.do"
-BULLETIN_PAGE = f"{BASE}/j202/prc/prc_anno_comp_srh.jsp"
-BULLETIN_POST = f"{BASE}/j202/servlet/com.fpg.j202.Cj202c12"
-# 標案管理（一般標售）
-BID_PAGE = f"{BASE}/j202/prc/prc_bid_gen_srh.jsp"
-BID_POST = f"{BASE}/j202/servlet/com.fpg.j202.Cj202c13"
-# 競標管理（競標案件）
-CMP_BID_PAGE = f"{BASE}/j202/cmp/prc_bid_gen_srh.jsp"
-CMP_BID_POST = f"{BASE}/j202/servlet/com.fpg.j202.Cj202c14"
 
 
 @dataclass(frozen=True)
@@ -52,24 +52,25 @@ class BidChannelConfig:
     label: str
 
 
-_BID_CHANNELS: dict[str, BidChannelConfig] = {
-    "gen": BidChannelConfig(
-        page=BID_PAGE,
-        post=BID_POST,
-        from_search="FJ202C1PB01",
-        from_list="FJ202C1PB02",
-        from_detail="FJ202C1PB03",
-        label="標案管理",
-    ),
-    "cmp": BidChannelConfig(
-        page=CMP_BID_PAGE,
-        post=CMP_BID_POST,
-        from_search="FJ202C2PB01",
-        from_list="FJ202C2PB02",
-        from_detail="FJ202C2PB03",
-        label="競標管理",
-    ),
-}
+def _bid_channels() -> dict[str, BidChannelConfig]:
+    return {
+        "gen": BidChannelConfig(
+            page=fpg_url(BID_PAGE_PATH),
+            post=fpg_url(BID_POST_PATH),
+            from_search="FJ202C1PB01",
+            from_list="FJ202C1PB02",
+            from_detail="FJ202C1PB03",
+            label="標案管理",
+        ),
+        "cmp": BidChannelConfig(
+            page=fpg_url(CMP_BID_PAGE_PATH),
+            post=fpg_url(CMP_BID_POST_PATH),
+            from_search="FJ202C2PB01",
+            from_list="FJ202C2PB02",
+            from_detail="FJ202C2PB03",
+            label="競標管理",
+        ),
+    }
 
 
 class FpgHttpClient:
@@ -96,7 +97,7 @@ class FpgHttpClient:
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/150.0.0.0 Safari/537.36"
                 ),
-                "Origin": BASE,
+                "Origin": fpg_base_url(),
             },
         )
         return self
@@ -126,9 +127,11 @@ class FpgHttpClient:
 
     async def login(self) -> None:
         await self._get(settings.LOGIN_URL)
+        captcha_url = fpg_url(CAPTCHA_PATH)
+        login_servlet = fpg_url(LOGIN_SERVLET_PATH)
         for attempt in range(1, self.login_retries + 1):
             async with self.session.get(
-                f"{CAPTCHA_URL}?rrr={int(time.time() * 1000)}"
+                f"{captcha_url}?rrr={int(time.time() * 1000)}"
             ) as resp:
                 image = await resp.read()
             code = await self.captcha_service.solve_captcha(image)
@@ -136,7 +139,7 @@ class FpgHttpClient:
             if not code or code == "error" or len(str(code)) != 4:
                 continue
             html = await self._post_form(
-                LOGIN_SERVLET,
+                login_servlet,
                 {
                     "FROMJSP": "FJ2XXMG01",
                     "BTN": "",
@@ -161,7 +164,9 @@ class FpgHttpClient:
         end_date: str,
     ) -> list[CaseRecord]:
         """依公告日搜尋，回傳公報摘要 CaseRecord（已去重）。"""
-        await self._get(BULLETIN_PAGE)
+        bulletin_page = fpg_url(BULLETIN_PAGE_PATH)
+        bulletin_post = fpg_url(BULLETIN_POST_PATH)
+        await self._get(bulletin_page)
         first = await self._bulletin_list(start_date, end_date, page="1", itemnum="")
         records = parse_bulletin_cases(first)
         # 若細部 parser 漏案，至少保留案號
@@ -199,7 +204,7 @@ class FpgHttpClient:
                 seen.add(key)
                 records.append(record)
         for record in records:
-            record.source_url = BULLETIN_POST
+            record.source_url = bulletin_post
         return records
 
     async def _bulletin_list(
@@ -239,11 +244,16 @@ class FpgHttpClient:
         }
         if btn == "goPage":
             form["FROMJSP"] = "FJ202C1PA02"
-        return await self._post_form(BULLETIN_POST, form, referer=BULLETIN_PAGE)
+        return await self._post_form(
+            fpg_url(BULLETIN_POST_PATH),
+            form,
+            referer=fpg_url(BULLETIN_PAGE_PATH),
+        )
 
     async def enrich_case(self, base: CaseRecord) -> CaseRecord:
         """以標案／競標管理詢價／報價明細 enrichment；找不到則保留公報摘要。"""
-        primary = base.bid_channel if base.bid_channel in _BID_CHANNELS else "gen"
+        channels = _bid_channels()
+        primary = base.bid_channel if base.bid_channel in channels else "gen"
         fallback = "cmp" if primary == "gen" else "gen"
         last_error = ""
         for channel in (primary, fallback):
@@ -253,7 +263,7 @@ class FpgHttpClient:
                 last_error = str(exc)
                 logger.exception(
                     "%s擷取案件失敗 %s/%s",
-                    _BID_CHANNELS[channel].label,
+                    channels[channel].label,
                     base.tndsalno,
                     base.inqcnt,
                 )
@@ -279,7 +289,7 @@ class FpgHttpClient:
         base: CaseRecord,
         channel: str,
     ) -> CaseRecord | None:
-        cfg = _BID_CHANNELS[channel]
+        cfg = _bid_channels()[channel]
         record = CaseRecord(
             tndsalno=base.tndsalno,
             inqcnt=base.inqcnt,
@@ -384,7 +394,7 @@ class FpgHttpClient:
         return merge_records(base, record)
 
     async def download_zip(self, zip_url: str, tndsalno: str) -> Optional[Path]:
-        url = urljoin(BASE, zip_url)
+        url = urljoin(fpg_base_url(), zip_url)
         self.download_dir.mkdir(parents=True, exist_ok=True)
         path = self.download_dir / f"{tndsalno}.ZIP"
         try:

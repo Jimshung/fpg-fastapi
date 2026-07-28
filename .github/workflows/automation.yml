@@ -14,7 +14,6 @@ jobs:
     name: FPG 標售歸檔
     runs-on: ubuntu-latest
     env:
-      BASE_URL: ${{ secrets.BASE_URL }}
       LOGIN_URL: ${{ secrets.LOGIN_URL }}
       USERNAME: ${{ secrets.USERNAME }}
       PASSWORD: ${{ secrets.PASSWORD }}
@@ -26,7 +25,6 @@ jobs:
       NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
       ENABLE_TELEGRAM_NOTIFY: "true"
       ENVIRONMENT: production
-      HEADLESS_MODE: "true"
       TZ: Asia/Taipei
     timeout-minutes: 30
 
@@ -146,7 +144,6 @@ jobs:
       USERNAME: ${{ secrets.USERNAME }}
       PASSWORD: ${{ secrets.PASSWORD }}
       LOGIN_URL: ${{ secrets.LOGIN_URL }}
-      BASE_URL: ${{ secrets.BASE_URL }}
     timeout-minutes: 30
 
     steps:
