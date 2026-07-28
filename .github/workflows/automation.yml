@@ -160,13 +160,13 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run PCC archive (deadline window)
+      - name: Run PCC archive (announce date)
         id: pcc
         run: |
           set -o pipefail
           START_TIME=$(date +%s)
 
-          python -m app.scripts.run_pcc_archive --days 7 --skip-notion-view 2>&1 | tee pcc_archive.log
+          python -m app.scripts.run_pcc_archive --skip-notion-view 2>&1 | tee pcc_archive.log
           EXIT_CODE=${PIPESTATUS[0]}
 
           END_TIME=$(date +%s)
@@ -181,7 +181,7 @@ jobs:
             else
               {
                 echo "【摘要】"
-                grep -E '截止投標|待擷取|完成：' pcc_archive.log || true
+                grep -E '公告日|待擷取|完成：' pcc_archive.log || true
                 echo "..."
                 grep -E '^.*\[(OK|ERR)\]' pcc_archive.log | tail -n 15 || true
               }

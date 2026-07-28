@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from datetime import date, timedelta
+from datetime import date
 from typing import Optional
 
 import aiohttp
@@ -29,6 +29,8 @@ DETAIL_BY_KIND = {
     "normal": f"{BASE}/opas/aspam/public/readOneAspamDetail",
 }
 REQUEST_PAUSE = 0.25
+# 截止投標回填用：遠迄日（實測 2026 年底後無更多筆）
+DEFAULT_DEADLINE_END = date(2027, 12, 31)
 
 
 def to_western_slash(d: date) -> str:
@@ -38,12 +40,6 @@ def to_western_slash(d: date) -> str:
 def displaytag_page_number(url: str) -> int:
     m = re.search(r"d-\d+-p=(\d+)", url)
     return int(m.group(1)) if m else 0
-
-
-def default_deadline_window(today: Optional[date] = None) -> tuple[date, date]:
-    """預設：今天起 7 天內截止投標。"""
-    base = today or date.today()
-    return base, base + timedelta(days=7)
 
 
 class PccHttpClient:
@@ -93,14 +89,16 @@ class PccHttpClient:
         ) as resp:
             return resp.status, await resp.text(errors="replace")
 
-    async def search_by_tender_deadline(
+    async def _search(
         self,
-        start: date,
-        end: date,
         *,
+        label: str,
+        notice_begin: str = "",
+        notice_end: str = "",
+        dead_begin: str = "",
+        dead_end: str = "",
         rows_per_page: int = 100,
     ) -> list[PccAssetRecord]:
-        """依截止投標區間搜尋（西元 YYYY/MM/DD）。"""
         await self._refresh_csrf()
         form = {
             "_csrf": self._csrf,
@@ -108,10 +106,10 @@ class PccHttpClient:
             "searchAssetsName": "",
             "searchOrgId": "",
             "searchOrgName": "",
-            "searchBeginNoticeDate": "",
-            "searchEndNoticeDate": "",
-            "searchBeginTenderDeadline": to_western_slash(start),
-            "searchEndTenderDeadline": to_western_slash(end),
+            "searchBeginNoticeDate": notice_begin,
+            "searchEndNoticeDate": notice_end,
+            "searchBeginTenderDeadline": dead_begin,
+            "searchEndTenderDeadline": dead_end,
             "pageModel.rowsPerPage": str(rows_per_page),
             "pageModel.pagePosition": "0",
         }
@@ -129,9 +127,8 @@ class PccHttpClient:
         records = parse_search_summaries(html)
         seen = {r.pk for r in records}
         logger.info(
-            "PCC 截止投標 %s~%s：共 %s 筆，本頁 %s 筆",
-            start,
-            end,
+            "PCC %s：共 %s 筆，本頁 %s 筆",
+            label,
             total,
             len(records),
         )
@@ -156,6 +153,40 @@ class PccHttpClient:
                 break
 
         return records
+
+    async def search_by_announce_date(
+        self,
+        start: date,
+        end: date,
+        *,
+        rows_per_page: int = 100,
+    ) -> list[PccAssetRecord]:
+        """依公告日區間搜尋（西元 YYYY/MM/DD）。"""
+        begin = to_western_slash(start)
+        finish = to_western_slash(end)
+        return await self._search(
+            label=f"公告日 {begin}~{finish}",
+            notice_begin=begin,
+            notice_end=finish,
+            rows_per_page=rows_per_page,
+        )
+
+    async def search_by_tender_deadline(
+        self,
+        start: date,
+        end: date,
+        *,
+        rows_per_page: int = 100,
+    ) -> list[PccAssetRecord]:
+        """依截止投標區間搜尋（西元 YYYY/MM/DD；供歷史回填）。"""
+        begin = to_western_slash(start)
+        finish = to_western_slash(end)
+        return await self._search(
+            label=f"截止投標 {begin}~{finish}",
+            dead_begin=begin,
+            dead_end=finish,
+            rows_per_page=rows_per_page,
+        )
 
     async def _load_detail_html(
         self, base: PccAssetRecord

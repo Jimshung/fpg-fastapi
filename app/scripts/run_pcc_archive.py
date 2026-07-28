@@ -1,9 +1,13 @@
 """政府財物變賣 HTTP 擷取 → Notion 歸檔。
 
-用法:
+用法（日常＝公告日節奏，對齊台塑）:
   python -m app.scripts.run_pcc_archive
-  python -m app.scripts.run_pcc_archive --start 2026/07/23 --end 2026/07/29
-  python -m app.scripts.run_pcc_archive --days 7 --limit 5
+  python -m app.scripts.run_pcc_archive --date 2026/07/22
+  python -m app.scripts.run_pcc_archive --start 2026/07/22 --end 2026/07/29
+  python -m app.scripts.run_pcc_archive --days 3
+
+歷史回填（依截止投標）:
+  python -m app.scripts.run_pcc_archive --deadline-from 2026/07/29
 """
 from __future__ import annotations
 
@@ -14,7 +18,7 @@ import sys
 from datetime import date, datetime, timedelta
 
 from app.core.config import settings
-from app.services.pcc_http_client import PccHttpClient, default_deadline_window
+from app.services.pcc_http_client import DEFAULT_DEADLINE_END, PccHttpClient
 from app.services.pcc_notion_archive_service import PccNotionArchiveService
 
 logging.basicConfig(
@@ -26,13 +30,25 @@ logger = logging.getLogger(__name__)
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="PCC 財物變賣 → Notion 歸檔")
-    parser.add_argument("--start", help="截止投標起日 YYYY/MM/DD")
-    parser.add_argument("--end", help="截止投標迄日 YYYY/MM/DD")
+    parser.add_argument(
+        "--date",
+        help="單一公告日 YYYY/MM/DD（預設今天；與 --deadline-from 互斥）",
+    )
+    parser.add_argument("--start", help="公告日起日 YYYY/MM/DD")
+    parser.add_argument("--end", help="公告日迄日 YYYY/MM/DD")
     parser.add_argument(
         "--days",
         type=int,
-        default=7,
-        help="未指定起迄時，從今天起往後 N 天（預設 7）",
+        default=None,
+        help="未指定起迄時，公告日往回 N 天（含今天；例 --days 3）",
+    )
+    parser.add_argument(
+        "--deadline-from",
+        help="改依截止投標回填：起日 YYYY/MM/DD（迄日見 --deadline-to）",
+    )
+    parser.add_argument(
+        "--deadline-to",
+        help="截止投標迄日 YYYY/MM/DD（預設 2027/12/31）",
     )
     parser.add_argument(
         "--limit",
@@ -52,28 +68,60 @@ def parse_slash_date(raw: str) -> date:
     return datetime.strptime(raw, "%Y/%m/%d").date()
 
 
-def resolve_deadline_range(args: argparse.Namespace) -> tuple[date, date]:
+def resolve_announce_range(args: argparse.Namespace) -> tuple[date, date]:
+    if args.date:
+        d = parse_slash_date(args.date)
+        return d, d
     if args.start or args.end:
         start = parse_slash_date(args.start or args.end)
         end = parse_slash_date(args.end or args.start)
         if end < start:
             start, end = end, start
         return start, end
-    start, _ = default_deadline_window()
-    return start, start + timedelta(days=max(args.days, 0))
+    today = date.today()
+    if args.days is not None:
+        n = max(args.days, 0)
+        return today - timedelta(days=n), today
+    return today, today
+
+
+def resolve_deadline_range(args: argparse.Namespace) -> tuple[date, date]:
+    start = parse_slash_date(args.deadline_from)
+    end = (
+        parse_slash_date(args.deadline_to)
+        if args.deadline_to
+        else DEFAULT_DEADLINE_END
+    )
+    if end < start:
+        start, end = end, start
+    return start, end
 
 
 async def run_pcc_archive(args: argparse.Namespace) -> int:
-    start, end = resolve_deadline_range(args)
+    use_deadline = bool(args.deadline_from)
+    if use_deadline and (args.date or args.start or args.end or args.days is not None):
+        logger.error("請勿同時指定公告日參數與 --deadline-from")
+        return 2
+
+    if use_deadline:
+        start, end = resolve_deadline_range(args)
+        mode_label = "截止投標"
+    else:
+        start, end = resolve_announce_range(args)
+        mode_label = "公告日"
+
     started = datetime.now()
-    logger.info("開始 PCC 歸檔（截止投標 %s ~ %s）", start, end)
+    logger.info("開始 PCC 歸檔（%s %s ~ %s）", mode_label, start, end)
 
     if not settings.NOTION_TOKEN or not settings.PCC_NOTION_DATABASE_ID:
         logger.error("請先設定 NOTION_TOKEN / PCC_NOTION_DATABASE_ID")
         return 2
 
     async with PccHttpClient() as pcc, PccNotionArchiveService() as notion:
-        bases = await pcc.search_by_tender_deadline(start, end)
+        if use_deadline:
+            bases = await pcc.search_by_tender_deadline(start, end)
+        else:
+            bases = await pcc.search_by_announce_date(start, end)
         if args.limit and args.limit > 0:
             bases = bases[: args.limit]
         logger.info("待擷取案件數：%s", len(bases))
@@ -104,12 +152,13 @@ async def run_pcc_archive(args: argparse.Namespace) -> int:
     for record in records:
         flag = "OK" if record.status != "error" else "ERR"
         logger.info(
-            "[%s] %s %s 機關=%s 財物=%s 截止=%s %s",
+            "[%s] %s %s 機關=%s 財物=%s 公告=%s 截止=%s %s",
             flag,
             record.pk,
             record.case_no,
             record.org_name,
             (record.assets_name or "")[:40],
+            record.announce_date,
             record.tender_deadline,
             record.error,
         )

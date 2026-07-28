@@ -24,6 +24,11 @@ from app.services.notion_archive_service import (
 
 logger = logging.getLogger(__name__)
 API = "https://api.notion.com/v1"
+# 頁面 body 受管區段標記（side peek 不用點 View details 也能讀）
+SUMMARY_MARKER = "案情摘要｜"
+SUMMARY_HEADING = "案情摘要"
+NOTION_TEXT_LIMIT = 1800
+NOTION_DELETE_PAUSE = 0.2
 
 PRIORITY_COLUMNS = [
     "標案案號",
@@ -40,6 +45,130 @@ PRIORITY_COLUMNS = [
 
 def is_valid_email(value: str) -> bool:
     return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value or ""))
+
+
+def _fmt_display_dt(iso: str) -> str:
+    text = (iso or "").strip()
+    if not text:
+        return "—"
+    if "T" in text:
+        return text.replace("T", " ").replace("+08:00", "").rstrip("Z")
+    return text
+
+
+def _rich_chunks(content: str) -> list[dict]:
+    text = (content or "").strip() or "—"
+    parts: list[dict] = []
+    for i in range(0, len(text), NOTION_TEXT_LIMIT):
+        parts.append(
+            {"type": "text", "text": {"content": text[i : i + NOTION_TEXT_LIMIT]}}
+        )
+    return parts
+
+
+def _heading_block(text: str, *, level: int = 2) -> dict:
+    key = f"heading_{level}"
+    return {
+        "object": "block",
+        "type": key,
+        key: {"rich_text": _rich_chunks(text)[:1]},
+    }
+
+
+def _paragraph_block(text: str) -> dict:
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {"rich_text": _rich_chunks(text)},
+    }
+
+
+def _link_paragraph(label: str, url: str) -> dict:
+    """可點連結（短標籤，免掃超長 URL）。"""
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {
+            "rich_text": [
+                {"type": "text", "text": {"content": f"{label}："}},
+                {
+                    "type": "text",
+                    "text": {
+                        "content": "開啟採購網詳情",
+                        "link": {"url": url},
+                    },
+                },
+            ]
+        },
+    }
+
+
+def _bulleted_block(text: str) -> dict:
+    return {
+        "object": "block",
+        "type": "bulleted_list_item",
+        "bulleted_list_item": {"rich_text": _rich_chunks(text)},
+    }
+
+
+def _divider_block() -> dict:
+    return {"object": "block", "type": "divider", "divider": {}}
+
+
+def _block_plain_text(block: dict) -> str:
+    btype = block.get("type") or ""
+    payload = block.get(btype) or {}
+    texts = payload.get("rich_text") or []
+    return "".join(
+        (t.get("plain_text") or t.get("text", {}).get("content") or "") for t in texts
+    )
+
+
+def build_summary_blocks(record: PccAssetRecord) -> list[dict]:
+    """Side peek 正文：重點案情，免點 View details。"""
+    contact = record.contact_display
+    email = (record.email or "").strip()
+    if email:
+        contact = f"{contact} / {email}" if contact else email
+
+    blocks: list[dict] = [
+        _heading_block(SUMMARY_HEADING, level=2),
+        _paragraph_block(f"{SUMMARY_MARKER}pk={record.pk}"),
+    ]
+    # 來源放最前，side peek 一開就能點
+    if record.source_url:
+        blocks.append(_link_paragraph("來源", record.source_url))
+    blocks.extend(
+        [
+            _bulleted_block(f"機關：{record.org_name or '—'}"),
+            _bulleted_block(f"財物：{record.assets_name or '—'}"),
+            _bulleted_block(
+                f"公告：{_fmt_display_dt(record.announce_date)}"
+                f"　截止：{_fmt_display_dt(record.tender_deadline)}"
+                f"　開標：{_fmt_display_dt(record.open_time)}"
+            ),
+            _bulleted_block(f"底價：{record.reserve_price or '—'}"),
+            _bulleted_block(f"所在地：{record.location or '—'}"),
+            _bulleted_block(f"開標地點：{record.open_place or '—'}"),
+            _bulleted_block(f"聯絡：{contact or '—'}"),
+        ]
+    )
+
+    long_sections = (
+        ("投標資格", record.qualification),
+        ("文件領取", record.document_howto),
+        ("附加說明", record.extra_notes),
+    )
+    for title, body in long_sections:
+        text = (body or "").strip()
+        if not text:
+            continue
+        blocks.append(_divider_block())
+        blocks.append(_heading_block(title, level=3))
+        # 長文切成多段，避免單 block 過長
+        for i in range(0, len(text), NOTION_TEXT_LIMIT):
+            blocks.append(_paragraph_block(text[i : i + NOTION_TEXT_LIMIT]))
+    return blocks
 
 
 class PccNotionArchiveService:
@@ -195,6 +324,56 @@ class PccNotionArchiveService:
         # Notion date accepts date or datetime with timezone
         return {"date": {"start": value}}
 
+    async def _list_block_children(self, block_id: str) -> list[dict]:
+        results: list[dict] = []
+        cursor = None
+        while True:
+            path = f"/blocks/{block_id}/children?page_size=100"
+            if cursor:
+                path += f"&start_cursor={cursor}"
+            data = await self.request("GET", path)
+            results.extend(data.get("results") or [])
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+            if not cursor:
+                break
+        return results
+
+    async def _clear_summary_blocks(self, page_id: str) -> None:
+        """刪除受管「案情摘要」區段（從標記／標題到頁尾）。"""
+        children = await self._list_block_children(page_id)
+        start = None
+        for i, block in enumerate(children):
+            text = _block_plain_text(block)
+            if SUMMARY_MARKER in text or text.strip() == SUMMARY_HEADING:
+                start = i
+                break
+        if start is None:
+            return
+        for block in children[start:]:
+            block_id = block.get("id")
+            if not block_id:
+                continue
+            await self.request("DELETE", f"/blocks/{block_id}")
+            await asyncio.sleep(NOTION_DELETE_PAUSE)
+
+    async def sync_page_body(self, page_id: str, record: PccAssetRecord) -> None:
+        """把重點案情寫進頁面 body，side peek 直接可見。"""
+        children = build_summary_blocks(record)
+        if not children:
+            return
+        await self._clear_summary_blocks(page_id)
+        # Notion 單次 append 上限 100
+        for i in range(0, len(children), 100):
+            await self.request(
+                "PATCH",
+                f"/blocks/{page_id}/children",
+                json_body={"children": children[i : i + 100]},
+            )
+            await asyncio.sleep(NOTION_REQUEST_PAUSE)
+        logger.info("已寫入 PCC 案情摘要 body pk=%s", record.pk)
+
     async def upsert_case(self, record: PccAssetRecord) -> dict:
         today = date.today().isoformat()
         existing = await self.find_page_by_pk(record.pk) if record.pk else None
@@ -263,6 +442,12 @@ class PccNotionArchiveService:
                 },
             )
         await asyncio.sleep(NOTION_REQUEST_PAUSE)
+        page_id = page.get("id") or (existing or {}).get("id")
+        if page_id and record.status != "error":
+            try:
+                await self.sync_page_body(page_id, record)
+            except Exception:
+                logger.exception("PCC 案情摘要 body 寫入失敗 %s", record.case_key)
         return page
 
     async def upsert_many(self, records: list[PccAssetRecord]) -> list[dict]:
@@ -330,8 +515,8 @@ class PccNotionArchiveService:
     ) -> dict:
         sort_prop = (
             sort_property
-            or name_to_id.get("截止投標")
             or name_to_id.get("公告日期")
+            or name_to_id.get("截止投標")
             or name_to_id["標案案號"]
         )
         payload: dict = {
@@ -401,7 +586,7 @@ class PccNotionArchiveService:
         return view
 
     async def configure_desktop_table(self) -> None:
-        """桌面表格欄位 + 本月／下月（依截止投標）。"""
+        """桌面表格（預設依公告日排序）+ 本月／下月（依截止投標篩選）。"""
         views_version = self.file_upload_version
         db = await self.request(
             "GET",
