@@ -47,11 +47,12 @@ jobs:
         run: |
           set -o pipefail
           START_TIME=$(date +%s)
+          DIGEST_FILE=telegram_digest.txt
 
           mkdir -p app/utils/screenshots/archive_downloads
 
           # 預設略過桌面 view 調整，避免 Views API 偶發失敗中斷歸檔
-          python -m app.scripts.run_archive --skip-notion-view 2>&1 | tee archive.log
+          python -m app.scripts.run_archive --skip-notion-view --digest-file "$DIGEST_FILE" 2>&1 | tee archive.log
           EXIT_CODE=${PIPESTATUS[0]}
 
           END_TIME=$(date +%s)
@@ -59,28 +60,16 @@ jobs:
           echo "EXECUTION_TIME=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_ENV"
           echo "EXECUTION_DURATION=$DURATION" >> "$GITHUB_ENV"
 
+          if [ ! -f "$DIGEST_FILE" ]; then
+            printf '%s\n' "❌ 台塑歸檔未產生 digest（腳本可能提早失敗）" > "$DIGEST_FILE"
+          fi
           {
-            echo "log<<EOF"
-            cat archive.log
+            echo "digest<<EOF"
+            cat "$DIGEST_FILE"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-          {
-            echo "telegram_log<<EOF"
-            if [ "$(grep -cE '歸檔|SKIP|Notion|完成|ERROR|成功|失敗' archive.log || true)" -le 30 ]; then
-              grep -E '歸檔|SKIP|Notion|完成|ERROR|成功|失敗|待擷取|台灣案' archive.log || true
-            else
-              {
-                echo "【摘要】"
-                grep -E '台灣案篩選|待擷取|完成：' archive.log || true
-                echo "..."
-                grep -E '^.*\[(OK|ERR|SKIP)\]' archive.log | tail -n 15 || true
-              }
-            fi
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-          if [ "$EXIT_CODE" -eq 0 ] && grep -q "完成：" archive.log; then
+          if [ "$EXIT_CODE" -eq 0 ]; then
             echo "status=success" >> "$GITHUB_OUTPUT"
           else
             echo "status=failure" >> "$GITHUB_OUTPUT"
@@ -103,22 +92,13 @@ jobs:
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          format: markdown
+          format: html
+          disable_web_page_preview: true
           message: |
-            *FPG 標售歸檔報告* 📦
+            ${{ steps.archive.outputs.digest }}
 
-            📊 *執行資訊*
-            執行狀態: ${{ steps.archive.outputs.status == 'success' && '✅ 成功' || '❌ 失敗' }}
-            執行時間: ${{ env.EXECUTION_TIME }}
-            執行耗時: ${{ env.EXECUTION_DURATION }} 秒
-            觸發方式: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
-
-            🔍 *執行日誌*:
-            ```
-            ${{ steps.archive.outputs.telegram_log }}
-            ```
-
-            [📋 完整記錄](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            ⏱ ${{ env.EXECUTION_TIME }}｜${{ env.EXECUTION_DURATION }}s｜${{ github.event_name == 'schedule' && '排程' || '手動' }}
+            <a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">Actions log</a>
 
       - name: Upload logs
         if: always()
@@ -127,6 +107,7 @@ jobs:
           name: archive-logs
           path: |
             archive.log
+            telegram_digest.txt
           retention-days: 5
 
   run-pcc-archive:
@@ -165,8 +146,9 @@ jobs:
         run: |
           set -o pipefail
           START_TIME=$(date +%s)
+          DIGEST_FILE=telegram_digest.txt
 
-          python -m app.scripts.run_pcc_archive --skip-notion-view 2>&1 | tee pcc_archive.log
+          python -m app.scripts.run_pcc_archive --skip-notion-view --digest-file "$DIGEST_FILE" 2>&1 | tee pcc_archive.log
           EXIT_CODE=${PIPESTATUS[0]}
 
           END_TIME=$(date +%s)
@@ -174,22 +156,16 @@ jobs:
           echo "PCC_EXECUTION_TIME=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_ENV"
           echo "PCC_EXECUTION_DURATION=$DURATION" >> "$GITHUB_ENV"
 
+          if [ ! -f "$DIGEST_FILE" ]; then
+            printf '%s\n' "❌ 政府財物歸檔未產生 digest（腳本可能提早失敗）" > "$DIGEST_FILE"
+          fi
           {
-            echo "telegram_log<<EOF"
-            if [ "$(grep -cE '歸檔|Notion|完成|ERROR|成功|失敗|待擷取' pcc_archive.log || true)" -le 30 ]; then
-              grep -E '歸檔|Notion|完成|ERROR|成功|失敗|待擷取|PCC' pcc_archive.log || true
-            else
-              {
-                echo "【摘要】"
-                grep -E '公告日|待擷取|完成：' pcc_archive.log || true
-                echo "..."
-                grep -E '^.*\[(OK|ERR)\]' pcc_archive.log | tail -n 15 || true
-              }
-            fi
+            echo "digest<<EOF"
+            cat "$DIGEST_FILE"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-          if [ "$EXIT_CODE" -eq 0 ] && grep -q "完成：" pcc_archive.log; then
+          if [ "$EXIT_CODE" -eq 0 ]; then
             echo "status=success" >> "$GITHUB_OUTPUT"
           else
             echo "status=failure" >> "$GITHUB_OUTPUT"
@@ -202,22 +178,13 @@ jobs:
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          format: markdown
+          format: html
+          disable_web_page_preview: true
           message: |
-            *PCC 財物變賣歸檔報告* 🏛️
+            ${{ steps.pcc.outputs.digest }}
 
-            📊 *執行資訊*
-            執行狀態: ${{ steps.pcc.outputs.status == 'success' && '✅ 成功' || '❌ 失敗' }}
-            執行時間: ${{ env.PCC_EXECUTION_TIME }}
-            執行耗時: ${{ env.PCC_EXECUTION_DURATION }} 秒
-            觸發方式: ${{ github.event_name == 'schedule' && '⏰ 排程' || '🔄 手動' }}
-
-            🔍 *執行日誌*:
-            ```
-            ${{ steps.pcc.outputs.telegram_log }}
-            ```
-
-            [📋 完整記錄](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            ⏱ ${{ env.PCC_EXECUTION_TIME }}｜${{ env.PCC_EXECUTION_DURATION }}s｜${{ github.event_name == 'schedule' && '排程' || '手動' }}
+            <a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">Actions log</a>
 
       - name: Upload PCC logs
         if: always()
@@ -226,4 +193,5 @@ jobs:
           name: pcc-archive-logs
           path: |
             pcc_archive.log
+            telegram_digest.txt
           retention-days: 5

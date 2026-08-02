@@ -89,6 +89,8 @@ app/
     pcc_parser.py
     pcc_notion_archive_service.py  # 財物變賣 Notion（含案情摘要 body）
     taiwan_case_filter.py
+  utils/
+    telegram_digest.py             # Telegram 當日速覽（短訊息）
   models/
     case_record.py
     pcc_asset_record.py
@@ -99,5 +101,6 @@ app/
 - Workflow：`.github/workflows/automation.yml`
 - 排程：週一–五 台北 08:00、16:00
 - Job：`run-archive`（台塑，今天公告）與 `run-pcc-archive`（政府，今天公告）並行
+- 各 job 歸檔後發 **Telegram 當日速覽**（短清單；完整 log 在 Actions／artifact）
 - PCC job 使用 `--skip-notion-view`（避免每次改 view）；本機完整跑可省略該旗標以調整桌面／月 view
 - Secrets 需含 `PCC_NOTION_DATABASE_ID`、`LOGIN_URL`（勿再依賴 `BASE_URL`）

@@ -515,8 +515,8 @@ class NotionArchiveService:
                 )
         return page
 
-    async def upsert_many(self, records: list[CaseRecord]) -> list[dict]:
-        pages = []
+    async def upsert_many(self, records: list[CaseRecord]) -> list[dict | None]:
+        pages: list[dict | None] = []
         for record in records:
             try:
                 page = await self.upsert_case(record)
@@ -529,6 +529,7 @@ class NotionArchiveService:
             except Exception:
                 logger.exception("Notion upsert 失敗 %s", record.case_key)
                 record.status = "error"
+                pages.append(None)
         return pages
 
     def _table_property_configs(self, name_to_id: dict[str, str]) -> list[dict]:

@@ -16,10 +16,16 @@ import asyncio
 import logging
 import sys
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from app.core.config import settings
 from app.services.pcc_http_client import DEFAULT_DEADLINE_END, PccHttpClient
 from app.services.pcc_notion_archive_service import PccNotionArchiveService
+from app.utils.telegram_digest import (
+    DEFAULT_DIGEST_PATH,
+    build_pcc_digest,
+    write_digest,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +67,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="略過調整桌面／月 view",
     )
+    parser.add_argument(
+        "--digest-file",
+        default=str(DEFAULT_DIGEST_PATH),
+        help="Telegram 速覽輸出路徑（預設 telegram_digest.txt）",
+    )
     return parser.parse_args(argv)
 
 
@@ -97,6 +108,26 @@ def resolve_deadline_range(args: argparse.Namespace) -> tuple[date, date]:
     return start, end
 
 
+def _emit_digest(
+    *,
+    path: Path,
+    range_label: str,
+    records,
+    ok: int,
+    err: int,
+    elapsed_s: float,
+) -> None:
+    text = build_pcc_digest(
+        range_label=range_label,
+        records=records,
+        ok=ok,
+        err=err,
+        elapsed_s=elapsed_s,
+    )
+    write_digest(text, path)
+    logger.info("已寫入 Telegram digest → %s（%s 字）", path, len(text))
+
+
 async def run_pcc_archive(args: argparse.Namespace) -> int:
     use_deadline = bool(args.deadline_from)
     if use_deadline and (args.date or args.start or args.end or args.days is not None):
@@ -110,12 +141,21 @@ async def run_pcc_archive(args: argparse.Namespace) -> int:
         start, end = resolve_announce_range(args)
         mode_label = "公告日"
 
+    range_label = (
+        start.isoformat()
+        if start == end
+        else f"{start.isoformat()}~{end.isoformat()}"
+    )
+    digest_path = Path(args.digest_file)
     started = datetime.now()
     logger.info("開始 PCC 歸檔（%s %s ~ %s）", mode_label, start, end)
 
     if not settings.NOTION_TOKEN or not settings.PCC_NOTION_DATABASE_ID:
         logger.error("請先設定 NOTION_TOKEN / PCC_NOTION_DATABASE_ID")
         return 2
+
+    records = []
+    pages: list = []
 
     async with PccHttpClient() as pcc, PccNotionArchiveService() as notion:
         if use_deadline:
@@ -125,19 +165,18 @@ async def run_pcc_archive(args: argparse.Namespace) -> int:
         if args.limit and args.limit > 0:
             bases = bases[: args.limit]
         logger.info("待擷取案件數：%s", len(bases))
-        if not bases:
+
+        if bases:
+            await notion.ensure_schema()
+            if not args.skip_notion_view:
+                try:
+                    await notion.configure_desktop_table()
+                except Exception:
+                    logger.exception("調整 PCC Notion view 失敗（不中斷歸檔）")
+            records = await pcc.fetch_cases(bases)
+            pages = await notion.upsert_many(records)
+        else:
             logger.warning("區間內無財物變賣案件")
-            return 0
-
-        await notion.ensure_schema()
-        if not args.skip_notion_view:
-            try:
-                await notion.configure_desktop_table()
-            except Exception:
-                logger.exception("調整 PCC Notion view 失敗（不中斷歸檔）")
-
-        records = await pcc.fetch_cases(bases)
-        pages = await notion.upsert_many(records)
 
     ok = sum(1 for r in records if r.status != "error")
     err = sum(1 for r in records if r.status == "error")
@@ -146,7 +185,7 @@ async def run_pcc_archive(args: argparse.Namespace) -> int:
         "完成：成功 %s、失敗 %s、Notion pages %s、耗時 %.1fs",
         ok,
         err,
-        len(pages),
+        sum(1 for p in pages if p),
         elapsed,
     )
     for record in records:
@@ -162,6 +201,14 @@ async def run_pcc_archive(args: argparse.Namespace) -> int:
             record.tender_deadline,
             record.error,
         )
+    _emit_digest(
+        path=digest_path,
+        range_label=range_label,
+        records=records,
+        ok=ok,
+        err=err,
+        elapsed_s=elapsed,
+    )
     return 0 if err == 0 else 1
 
 

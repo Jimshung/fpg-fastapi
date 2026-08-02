@@ -12,11 +12,17 @@ import asyncio
 import logging
 import sys
 from datetime import date, datetime
+from pathlib import Path
 
 from app.core.config import settings
 from app.services.fpg_http_client import FpgHttpClient
 from app.services.notion_archive_service import NotionArchiveService
 from app.services.taiwan_case_filter import filter_taiwan_cases
+from app.utils.telegram_digest import (
+    DEFAULT_DIGEST_PATH,
+    build_fpg_digest,
+    write_digest,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,6 +55,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="不過濾大陸案（預設只歸檔台灣案）",
     )
+    parser.add_argument(
+        "--digest-file",
+        default=str(DEFAULT_DIGEST_PATH),
+        help="Telegram 速覽輸出路徑（預設 telegram_digest.txt）",
+    )
     return parser.parse_args(argv)
 
 
@@ -63,14 +74,42 @@ def resolve_date_range(args: argparse.Namespace) -> tuple[str, str]:
     return today, today
 
 
+def _emit_digest(
+    *,
+    path: Path,
+    announce_label: str,
+    records,
+    pages,
+    ok: int,
+    err: int,
+    elapsed_s: float,
+) -> None:
+    urls = [(p or {}).get("url") if p else None for p in pages]
+    text = build_fpg_digest(
+        announce_label=announce_label,
+        records=records,
+        page_urls=urls,
+        ok=ok,
+        err=err,
+        elapsed_s=elapsed_s,
+    )
+    write_digest(text, path)
+    logger.info("已寫入 Telegram digest → %s（%s 字）", path, len(text))
+
+
 async def run_archive(args: argparse.Namespace) -> int:
     start, end = resolve_date_range(args)
+    announce_label = start if start == end else f"{start}~{end}"
+    digest_path = Path(args.digest_file)
     started = datetime.now()
     logger.info("開始歸檔公告日 %s ~ %s", start, end)
 
     if not settings.NOTION_TOKEN or not settings.NOTION_DATABASE_ID:
         logger.error("請先設定 NOTION_TOKEN / NOTION_DATABASE_ID")
         return 2
+
+    records = []
+    pages: list = []
 
     async with FpgHttpClient() as fpg, NotionArchiveService() as notion:
         await fpg.login()
@@ -92,19 +131,18 @@ async def run_archive(args: argparse.Namespace) -> int:
         if args.limit and args.limit > 0:
             bases = bases[: args.limit]
         logger.info("待擷取案件數：%s", len(bases))
-        if not bases:
+
+        if bases:
+            await notion.ensure_schema()
+            if not args.skip_notion_view:
+                try:
+                    await notion.configure_desktop_table()
+                except Exception:
+                    logger.exception("調整 Notion view 失敗（不中斷歸檔）")
+            records = await fpg.fetch_cases(bases)
+            pages = await notion.upsert_many(records)
+        else:
             logger.warning("今日無（台灣）公告案件")
-            return 0
-
-        await notion.ensure_schema()
-        if not args.skip_notion_view:
-            try:
-                await notion.configure_desktop_table()
-            except Exception:
-                logger.exception("調整 Notion view 失敗（不中斷歸檔）")
-
-        records = await fpg.fetch_cases(bases)
-        pages = await notion.upsert_many(records)
 
     ok = sum(1 for r in records if r.status != "error")
     err = sum(1 for r in records if r.status == "error")
@@ -113,7 +151,7 @@ async def run_archive(args: argparse.Namespace) -> int:
         "完成：成功 %s、失敗 %s、Notion pages %s、耗時 %.1fs",
         ok,
         err,
-        len(pages),
+        sum(1 for p in pages if p),
         elapsed,
     )
     for record in records:
@@ -128,6 +166,15 @@ async def run_archive(args: argparse.Namespace) -> int:
             bool(record.zip_path),
             record.error,
         )
+    _emit_digest(
+        path=digest_path,
+        announce_label=announce_label,
+        records=records,
+        pages=pages,
+        ok=ok,
+        err=err,
+        elapsed_s=elapsed,
+    )
     return 0 if err == 0 else 1
 
 

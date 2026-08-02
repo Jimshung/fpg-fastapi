@@ -450,8 +450,8 @@ class PccNotionArchiveService:
                 logger.exception("PCC 案情摘要 body 寫入失敗 %s", record.case_key)
         return page
 
-    async def upsert_many(self, records: list[PccAssetRecord]) -> list[dict]:
-        pages: list[dict] = []
+    async def upsert_many(self, records: list[PccAssetRecord]) -> list[dict | None]:
+        pages: list[dict | None] = []
         for record in records:
             try:
                 page = await self.upsert_case(record)
@@ -466,6 +466,7 @@ class PccNotionArchiveService:
                 logger.exception("PCC Notion upsert 失敗 %s", record.case_key)
                 record.status = "error"
                 record.error = record.error or "notion upsert failed"
+                pages.append(None)
         return pages
 
     def _table_property_configs(self, name_to_id: dict[str, str]) -> list[dict]:

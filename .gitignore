@@ -40,6 +40,7 @@ env/
 logs/
 *.tmp
 temp/
+telegram_digest.txt
 app/utils/screenshots/
 app/metrics
 

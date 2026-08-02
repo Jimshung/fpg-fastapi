@@ -1,0 +1,138 @@
+"""Telegram 當日公告速覽（短訊息；完整 log 仍在 Actions）。"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional, Sequence
+
+from app.models.case_record import CaseRecord
+from app.models.pcc_asset_record import PccAssetRecord
+
+# 低於 Telegram 4096，預留 CI 結尾連結
+DIGEST_CHAR_LIMIT = 3500
+MAX_ITEMS = 10
+DEFAULT_DIGEST_PATH = Path("telegram_digest.txt")
+
+
+def html_escape(text: str) -> str:
+    return (
+        (text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def clip(text: str, limit: int = 28) -> str:
+    value = " ".join((text or "").split())
+    if len(value) <= limit:
+        return value
+    return value[: max(limit - 1, 1)] + "…"
+
+
+def short_date(iso: str) -> str:
+    """YYYY-MM-DD[T...] → MM/DD；空則 —。"""
+    raw = (iso or "").strip()
+    if len(raw) >= 10 and raw[4] == "-" and raw[7] == "-":
+        return f"{raw[5:7]}/{raw[8:10]}"
+    return "—"
+
+
+def write_digest(text: str, path: Path = DEFAULT_DIGEST_PATH) -> Path:
+    path.write_text(text.strip() + "\n", encoding="utf-8")
+    return path
+
+
+def _status_line(*, ok: int, err: int, elapsed_s: float) -> str:
+    flag = "✅ 成功" if err == 0 else "❌ 失敗"
+    return f"{flag}｜{ok} 新案｜失敗 {err}｜耗時 {elapsed_s:.0f}s"
+
+
+def _fit(lines: list[str], limit: int = DIGEST_CHAR_LIMIT) -> str:
+    text = "\n".join(lines).strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def build_fpg_digest(
+    *,
+    announce_label: str,
+    records: Sequence[CaseRecord],
+    page_urls: Sequence[Optional[str]],
+    ok: int,
+    err: int,
+    elapsed_s: float,
+    max_items: int = MAX_ITEMS,
+) -> str:
+    lines = [
+        f"<b>📅 {html_escape(announce_label)}・台塑標售</b>",
+        _status_line(ok=ok, err=err, elapsed_s=elapsed_s),
+        "",
+    ]
+    if not records:
+        lines.append("今日無台灣新案")
+        return _fit(lines)
+
+    shown = list(records)[:max_items]
+    for i, record in enumerate(shown, 1):
+        summary = clip(record.items_summary.split("\n")[0] if record.items_summary else "")
+        if not summary:
+            summary = "（無品名）"
+        mark = "" if record.status != "error" else " ⚠"
+        lines.append(
+            f"{i}. {html_escape(record.case_key)}｜"
+            f"{html_escape(summary)}｜截止 {short_date(record.quote_deadline)}"
+            f"{mark}"
+        )
+        url = ""
+        if i - 1 < len(page_urls) and page_urls[i - 1]:
+            url = page_urls[i - 1] or ""
+        if url:
+            lines.append(f'<a href="{html_escape(url)}">Notion</a>')
+        lines.append("")
+
+    remaining = len(records) - len(shown)
+    if remaining > 0:
+        lines.append(f"…其餘 {remaining} 筆見 Notion／Actions log")
+    return _fit(lines)
+
+
+def build_pcc_digest(
+    *,
+    range_label: str,
+    records: Sequence[PccAssetRecord],
+    ok: int,
+    err: int,
+    elapsed_s: float,
+    max_items: int = MAX_ITEMS,
+) -> str:
+    lines = [
+        f"<b>📅 {html_escape(range_label)}・政府財物變賣</b>",
+        _status_line(ok=ok, err=err, elapsed_s=elapsed_s),
+        "",
+    ]
+    if not records:
+        lines.append("今日無新案")
+        return _fit(lines)
+
+    shown = list(records)[:max_items]
+    for i, record in enumerate(shown, 1):
+        org = clip(record.org_name, 12)
+        assets = clip(record.assets_name, 22)
+        mark = "" if record.status != "error" else " ⚠"
+        lines.append(
+            f"{i}. {html_escape(record.case_no or record.pk)}｜"
+            f"{html_escape(org)}｜{html_escape(assets)}｜"
+            f"截止 {short_date(record.tender_deadline)}"
+            f"{mark}"
+        )
+        if record.source_url:
+            lines.append(
+                f'<a href="{html_escape(record.source_url)}">採購網</a>'
+            )
+        lines.append("")
+
+    remaining = len(records) - len(shown)
+    if remaining > 0:
+        lines.append(f"…其餘 {remaining} 筆見 Notion／Actions log")
+    return _fit(lines)
