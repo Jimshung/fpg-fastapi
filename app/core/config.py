@@ -1,10 +1,18 @@
-from pydantic_settings import BaseSettings
 from functools import lru_cache
 from typing import Optional
+
 from loguru import logger
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
     APP_NAME: str = "FPG FastAPI"
 
     # 環境設定
@@ -17,9 +25,9 @@ class Settings(BaseSettings):
     AZURE_ENDPOINT: Optional[str] = None
     AZURE_API_KEY: Optional[str] = None
 
-    # FPG 登入設定（網域只放 .env，勿寫進程式碼預設值）
-    USERNAME: str
-    PASSWORD: str
+    # FPG 登入
+    FPG_USERNAME: str
+    FPG_PASSWORD: str
     LOGIN_URL: str
 
     # Telegram 設定
@@ -34,10 +42,6 @@ class Settings(BaseSettings):
     PCC_NOTION_DATABASE_ID: Optional[str] = None
     NOTION_VERSION: str = "2022-06-28"
     NOTION_FILE_UPLOAD_VERSION: str = "2026-03-11"
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
 
 
 @lru_cache()

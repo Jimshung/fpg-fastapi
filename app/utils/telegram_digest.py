@@ -63,18 +63,42 @@ def build_fpg_digest(
     err: int,
     elapsed_s: float,
     max_items: int = MAX_ITEMS,
+    shells: Sequence[CaseRecord] | None = None,
 ) -> str:
+    shell_list = list(shells) if shells is not None else [
+        r for r in records if r.is_incomplete_shell
+    ]
+    visible_pairs = [
+        (record, page_urls[i] if i < len(page_urls) else None)
+        for i, record in enumerate(records)
+        if not record.is_incomplete_shell
+    ]
+
     lines = [
         f"<b>📅 {html_escape(announce_label)}・台塑標售</b>",
         _status_line(ok=ok, err=err, elapsed_s=elapsed_s),
         "",
     ]
-    if not records:
+    if shell_list:
+        lines.append(
+            f"⚠ <b>空殼未寫入 Notion（{len(shell_list)}）</b>："
+            "公報細節未解析且無報價單"
+        )
+        for record in shell_list[:max_items]:
+            lines.append(f"・{html_escape(record.case_key)}")
+        if len(shell_list) > max_items:
+            lines.append(f"…另有 {len(shell_list) - max_items} 筆")
+        lines.append("請用 --date 該公告日重跑或檢查 parser")
+        lines.append("")
+
+    if not visible_pairs and not shell_list:
         lines.append("今日無台灣新案")
         return _fit(lines)
+    if not visible_pairs:
+        return _fit(lines)
 
-    shown = list(records)[:max_items]
-    for i, record in enumerate(shown, 1):
+    shown = visible_pairs[:max_items]
+    for i, (record, url) in enumerate(shown, 1):
         summary = clip(record.items_summary.split("\n")[0] if record.items_summary else "")
         if not summary:
             summary = "（無品名）"
@@ -84,14 +108,11 @@ def build_fpg_digest(
             f"{html_escape(summary)}｜截止 {short_date(record.quote_deadline)}"
             f"{mark}"
         )
-        url = ""
-        if i - 1 < len(page_urls) and page_urls[i - 1]:
-            url = page_urls[i - 1] or ""
         if url:
             lines.append(f'<a href="{html_escape(url)}">Notion</a>')
         lines.append("")
 
-    remaining = len(records) - len(shown)
+    remaining = len(visible_pairs) - len(shown)
     if remaining > 0:
         lines.append(f"…其餘 {remaining} 筆見 Notion／Actions log")
     return _fit(lines)

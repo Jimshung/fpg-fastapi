@@ -64,8 +64,8 @@ async def login_once(session: aiohttp.ClientSession, captcha_text: str) -> dict:
         "BTN": "",
         "Lang": "",
         "logonstate": "",
-        "id": settings.USERNAME,
-        "passwd": settings.PASSWORD,
+        "id": settings.FPG_USERNAME,
+        "passwd": settings.FPG_PASSWORD,
         "vcode": captcha_text,
     }
     headers = {

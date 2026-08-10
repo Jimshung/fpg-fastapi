@@ -27,14 +27,11 @@ class CaptchaService:
             # 調整圖片大小
             resized_image = await self._resize_image(image_buffer)
 
-            # 初始化分析
+            # 初始化分析（429 時退避重試）
             operation_location = await self._initiate_analysis(resized_image)
 
-            # 等待分析完成
-            await asyncio.sleep(self.captcha_analysis_delay)
-
-            # 獲取分析結果
-            result = await self._get_analysis_result(operation_location)
+            # 輪詢至分析完成
+            result = await self._poll_analysis_result(operation_location)
 
             # 提取文字
             extracted_text = self._extract_text_from_result(result)
@@ -70,25 +67,54 @@ class CaptchaService:
             "Content-Type": "application/octet-stream",
         }
 
+        last_status = None
         async with aiohttp.ClientSession() as session:
-            async with session.post(
-                self.azure_vision_url, headers=headers, data=image_buffer
-            ) as response:
-                if response.status != 202:
-                    raise Exception(f"未預期的響應狀態: {response.status}")
+            for attempt in range(1, 6):
+                async with session.post(
+                    self.azure_vision_url, headers=headers, data=image_buffer
+                ) as response:
+                    last_status = response.status
+                    if response.status == 202:
+                        operation_location = response.headers.get("operation-location")
+                        if not operation_location:
+                            raise Exception("未收到 operation-location 標頭")
+                        return operation_location
+                    if response.status == 429:
+                        retry_after = float(response.headers.get("Retry-After", "5"))
+                        wait_s = max(retry_after, 5.0 * attempt)
+                        self.logger.warning(
+                            "Azure OCR 429，等待 %.1fs 後重試（%s/5）",
+                            wait_s,
+                            attempt,
+                        )
+                        await asyncio.sleep(wait_s)
+                        continue
+                    body = await response.text()
+                    raise Exception(
+                        f"未預期的響應狀態: {response.status} body={body[:200]}"
+                    )
+        raise Exception(f"未預期的響應狀態: {last_status}")
 
-                operation_location = response.headers.get("operation-location")
-                if not operation_location:
-                    raise Exception("未收到 operation-location 標頭")
-
-                return operation_location
+    async def _poll_analysis_result(self, operation_location: str):
+        headers = {"Ocp-Apim-Subscription-Key": settings.AZURE_API_KEY}
+        async with aiohttp.ClientSession() as session:
+            for _ in range(15):
+                await asyncio.sleep(self.captcha_analysis_delay)
+                async with session.get(operation_location, headers=headers) as response:
+                    if response.status == 429:
+                        retry_after = float(response.headers.get("Retry-After", "5"))
+                        await asyncio.sleep(max(retry_after, 5.0))
+                        continue
+                    result = await response.json()
+                status = (result or {}).get("status")
+                if status == "succeeded":
+                    return result
+                if status in {"failed", "error"}:
+                    raise Exception(f"分析失敗。狀態: {status}")
+            raise Exception("分析逾時：仍未完成")
 
     async def _get_analysis_result(self, operation_location: str):
-        headers = {"Ocp-Apim-Subscription-Key": settings.AZURE_API_KEY}
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(operation_location, headers=headers) as response:
-                return await response.json()
+        return await self._poll_analysis_result(operation_location)
 
     def _extract_text_from_result(self, result: dict) -> str:
         if not result or result.get("status") != "succeeded":

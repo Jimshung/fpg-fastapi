@@ -83,6 +83,7 @@ def _emit_digest(
     ok: int,
     err: int,
     elapsed_s: float,
+    shells: list | None = None,
 ) -> None:
     urls = [(p or {}).get("url") if p else None for p in pages]
     text = build_fpg_digest(
@@ -92,6 +93,7 @@ def _emit_digest(
         ok=ok,
         err=err,
         elapsed_s=elapsed_s,
+        shells=shells,
     )
     write_digest(text, path)
     logger.info("已寫入 Telegram digest → %s（%s 字）", path, len(text))
@@ -140,22 +142,46 @@ async def run_archive(args: argparse.Namespace) -> int:
                 except Exception:
                     logger.exception("調整 Notion view 失敗（不中斷歸檔）")
             records = await fpg.fetch_cases(bases)
-            pages = await notion.upsert_many(records)
+            to_upsert = []
+            for record in records:
+                if record.mark_incomplete_shell():
+                    logger.error(
+                        "[SHELL] 不寫入 Notion %s 聯絡人=%s 截止=%s %s",
+                        record.case_key,
+                        record.contact_display or "(空)",
+                        record.quote_deadline or "(空)",
+                        record.error,
+                    )
+                    continue
+                to_upsert.append(record)
+            pages = await notion.upsert_many(to_upsert)
+            # digest 需要與 records 對齊：空殼對應 None
+            page_by_key = {
+                r.case_key: p for r, p in zip(to_upsert, pages)
+            }
+            pages = [page_by_key.get(r.case_key) for r in records]
         else:
             logger.warning("今日無（台灣）公告案件")
 
+    shells = [r for r in records if r.is_incomplete_shell]
     ok = sum(1 for r in records if r.status != "error")
     err = sum(1 for r in records if r.status == "error")
     elapsed = (datetime.now() - started).total_seconds()
     logger.info(
-        "完成：成功 %s、失敗 %s、Notion pages %s、耗時 %.1fs",
+        "完成：成功 %s、失敗 %s、空殼略過 %s、Notion pages %s、耗時 %.1fs",
         ok,
         err,
+        len(shells),
         sum(1 for p in pages if p),
         elapsed,
     )
     for record in records:
-        flag = "OK" if record.status != "error" else "ERR"
+        if record.is_incomplete_shell:
+            flag = "SHELL"
+        elif record.status == "error":
+            flag = "ERR"
+        else:
+            flag = "OK"
         logger.info(
             "[%s] %s 聯絡人=%s 地點=%s 截止=%s 附件=%s %s",
             flag,
@@ -174,6 +200,7 @@ async def run_archive(args: argparse.Namespace) -> int:
         ok=ok,
         err=err,
         elapsed_s=elapsed,
+        shells=shells,
     )
     return 0 if err == 0 else 1
 

@@ -23,6 +23,31 @@ def to_iso_date(raw: str) -> str:
     return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
 
 
+def fill_missing_announce_dates(
+    records: list[CaseRecord],
+    start_date: str,
+    end_date: str,
+) -> int:
+    """單一公告日搜尋時，為仍空白的案補上搜尋日。
+
+    公報細部解析／僅案號備援時可能沒帶到公告日；enrichment 又找不到報價單時
+    會原樣入庫，Notion 就無法用公告日篩選。回傳補上筆數。
+    """
+    start = (start_date or "").strip()
+    end = (end_date or "").strip()
+    if not start or start != end:
+        return 0
+    iso = to_iso_date(start)
+    if not iso:
+        return 0
+    filled = 0
+    for record in records:
+        if not (record.announce_date or "").strip():
+            record.announce_date = iso
+            filled += 1
+    return filled
+
+
 def parse_bulletin_case_keys(html: str) -> list[tuple[str, str]]:
     """從標售公報清單抽出 (tndsalno, inqcnt)，依出現順序去重。"""
     found = re.findall(r">([A-Z0-9]{2}-[A-Z0-9]+)/(\d{2})<", html)

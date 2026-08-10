@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.models.case_record import CaseRecord
 from app.services.captcha_service import CaptchaService
 from app.services.fpg_parser import (
+    fill_missing_announce_dates,
     merge_records,
     parse_bid_go_detail,
     parse_bulletin_case_keys,
@@ -137,6 +138,7 @@ class FpgHttpClient:
             code = await self.captcha_service.solve_captcha(image)
             logger.info("登入驗證碼 attempt=%s ocr=%r", attempt, code)
             if not code or code == "error" or len(str(code)) != 4:
+                await asyncio.sleep(2)
                 continue
             html = await self._post_form(
                 login_servlet,
@@ -145,19 +147,21 @@ class FpgHttpClient:
                     "BTN": "",
                     "Lang": "",
                     "logonstate": "",
-                    "id": settings.USERNAME,
-                    "passwd": settings.PASSWORD,
+                    "id": settings.FPG_USERNAME,
+                    "passwd": settings.FPG_PASSWORD,
                     "vcode": str(code),
                 },
                 referer=settings.LOGIN_URL,
             )
             if "驗證碼錯誤" in html:
+                await asyncio.sleep(1)
                 continue
+            if "密碼錯誤" in html or "帳號輸入錯誤" in html or "無此帳號" in html:
+                raise RuntimeError("FPG 登入失敗：帳號或密碼錯誤（請檢查 .env）")
             if "標售公報" in html or "標案管理" in html:
                 logger.info("FPG 登入成功")
                 return
         raise RuntimeError("FPG 登入失敗：驗證碼重試耗盡")
-
     async def search_bulletin_by_announce_date(
         self,
         start_date: str,
@@ -205,6 +209,13 @@ class FpgHttpClient:
                 records.append(record)
         for record in records:
             record.source_url = bulletin_post
+        filled = fill_missing_announce_dates(records, start_date, end_date)
+        if filled:
+            logger.info(
+                "單一公告日 %s：補上空白公告日 %s 筆",
+                start_date,
+                filled,
+            )
         return records
 
     async def _bulletin_list(
@@ -273,12 +284,20 @@ class FpgHttpClient:
         if last_error:
             base.status = "error"
             base.error = last_error
+            base.mark_incomplete_shell()
             return base
         logger.info(
             "標案／競標管理皆無報價單，使用公報摘要 %s/%s",
             base.tndsalno,
             base.inqcnt,
         )
+        if base.mark_incomplete_shell():
+            logger.warning(
+                "公報摘要亦為空殼，略過當成功案 %s/%s",
+                base.tndsalno,
+                base.inqcnt,
+            )
+            return base
         base.status = "new"
         if not base.error:
             base.error = ""

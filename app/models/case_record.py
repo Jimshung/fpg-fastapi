@@ -52,6 +52,28 @@ class CaseRecord:
         return f"{self.tndsalno}/{self.inqcnt}"
 
     @property
+    def is_incomplete_shell(self) -> bool:
+        """僅有案號、缺截止日與內容 → 寫入 Notion 會被截止日篩選藏起。"""
+        if (self.quote_deadline or "").strip():
+            return False
+        if (self.location or "").strip():
+            return False
+        if (self.plant_contact or "").strip():
+            return False
+        if self.items:
+            return False
+        return True
+
+    def mark_incomplete_shell(self) -> bool:
+        """若為空殼則標成 error；回傳是否為空殼。"""
+        if not self.is_incomplete_shell:
+            return False
+        self.status = "error"
+        if not (self.error or "").strip():
+            self.error = "空殼：公報細節未解析且 enrichment 無報價單"
+        return True
+
+    @property
     def contact_display(self) -> str:
         name = (self.plant_contact or "").strip()
         phone = (self.plant_phone or "").strip()

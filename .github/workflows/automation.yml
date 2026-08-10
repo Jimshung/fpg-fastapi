@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LOGIN_URL: ${{ secrets.LOGIN_URL }}
-      USERNAME: ${{ secrets.USERNAME }}
-      PASSWORD: ${{ secrets.PASSWORD }}
+      FPG_USERNAME: ${{ secrets.FPG_USERNAME }}
+      FPG_PASSWORD: ${{ secrets.FPG_PASSWORD }}
       AZURE_ENDPOINT: ${{ secrets.AZURE_ENDPOINT }}
       AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -121,9 +121,9 @@ jobs:
       ENABLE_TELEGRAM_NOTIFY: "true"
       ENVIRONMENT: production
       TZ: Asia/Taipei
-      # FPG 設定類仍可能被 Settings 要求
-      USERNAME: ${{ secrets.USERNAME }}
-      PASSWORD: ${{ secrets.PASSWORD }}
+      # Settings 啟動仍需要 FPG 帳密欄位（PCC job 不登入 FPG）
+      FPG_USERNAME: ${{ secrets.FPG_USERNAME }}
+      FPG_PASSWORD: ${{ secrets.FPG_PASSWORD }}
       LOGIN_URL: ${{ secrets.LOGIN_URL }}
     timeout-minutes: 30
 

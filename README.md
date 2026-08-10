@@ -35,7 +35,7 @@ cp .env.example .env   # 再填入實際值
 
 | 變數 | 用途 |
 |------|------|
-| `USERNAME` / `PASSWORD` | e-fpg 帳密 |
+| `FPG_USERNAME` / `FPG_PASSWORD` | e-fpg 帳密 |
 | `LOGIN_URL` | 完整登入頁 URL（網域只放這裡；其他 FPG 路徑由 `fpg_urls` 推導） |
 | `AZURE_ENDPOINT` / `AZURE_API_KEY` | 驗證碼 OCR |
 | `NOTION_TOKEN` | Notion integration token（兩庫共用） |
