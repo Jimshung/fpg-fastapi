@@ -42,9 +42,15 @@ def write_digest(text: str, path: Path = DEFAULT_DIGEST_PATH) -> Path:
     return path
 
 
-def _status_line(*, ok: int, err: int, elapsed_s: float) -> str:
-    flag = "✅ 成功" if err == 0 else "❌ 失敗"
-    return f"{flag}｜{ok} 新案｜失敗 {err}｜耗時 {elapsed_s:.0f}s"
+def _job_header(*, success: bool, job_name: str) -> str:
+    """仿 GitHub Actions Summary：標題列先放成功／失敗 icon。"""
+    icon = "✅" if success else "❌"
+    return f"{icon} <b>{html_escape(job_name)}</b>"
+
+
+def _metrics_line(*, ok: int, err: int, elapsed_s: float) -> str:
+    result = "成功" if err == 0 else "失敗"
+    return f"{result}｜{ok} 新案｜失敗 {err}｜耗時 {elapsed_s:.0f}s"
 
 
 def _fit(lines: list[str], limit: int = DIGEST_CHAR_LIMIT) -> str:
@@ -52,6 +58,24 @@ def _fit(lines: list[str], limit: int = DIGEST_CHAR_LIMIT) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
+
+
+def build_fpg_failure_digest(
+    *,
+    announce_label: str,
+    error: str,
+    elapsed_s: float,
+) -> str:
+    """登入或歸檔早期失敗時的短訊（仍要讓 Telegram 看得到原因）。"""
+    lines = [
+        _job_header(success=False, job_name="FPG 標售歸檔"),
+        f"<b>📅 {html_escape(announce_label)}・台塑標售</b>",
+        "登入／歸檔中斷",
+        "",
+        html_escape(error or "未知錯誤"),
+        f"耗時 {elapsed_s:.0f}s",
+    ]
+    return _fit(lines)
 
 
 def build_fpg_digest(
@@ -73,10 +97,12 @@ def build_fpg_digest(
         for i, record in enumerate(records)
         if not record.is_incomplete_shell
     ]
+    success = err == 0 and not shell_list
 
     lines = [
+        _job_header(success=success, job_name="FPG 標售歸檔"),
         f"<b>📅 {html_escape(announce_label)}・台塑標售</b>",
-        _status_line(ok=ok, err=err, elapsed_s=elapsed_s),
+        _metrics_line(ok=ok, err=err, elapsed_s=elapsed_s),
         "",
     ]
     if shell_list:
@@ -128,8 +154,9 @@ def build_pcc_digest(
     max_items: int = MAX_ITEMS,
 ) -> str:
     lines = [
+        _job_header(success=err == 0, job_name="PCC 財物變賣歸檔"),
         f"<b>📅 {html_escape(range_label)}・政府財物變賣</b>",
-        _status_line(ok=ok, err=err, elapsed_s=elapsed_s),
+        _metrics_line(ok=ok, err=err, elapsed_s=elapsed_s),
         "",
     ]
     if not records:

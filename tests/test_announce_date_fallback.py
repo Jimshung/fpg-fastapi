@@ -1,7 +1,7 @@
 """公告日空白補齊：不需網路的單元測試。
 
 用法:
-  python -m app.scripts.test_announce_date_fallback
+  python -m tests.test_announce_date_fallback
 """
 from __future__ import annotations
 

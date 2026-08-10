@@ -14,7 +14,7 @@ import aiohttp
 
 from app.core.config import settings
 from app.models.case_record import CaseRecord
-from app.services.captcha_service import CaptchaService
+from app.services.captcha_service import AzureRateLimitError, CaptchaService
 from app.services.fpg_parser import (
     fill_missing_announce_dates,
     merge_records,
@@ -80,7 +80,7 @@ class FpgHttpClient:
         *,
         captcha_service: Optional[CaptchaService] = None,
         download_dir: Optional[Path] = None,
-        login_retries: int = 12,
+        login_retries: int = 20,
     ) -> None:
         self.captcha_service = captcha_service or CaptchaService()
         self.download_dir = download_dir or Path("app/utils/screenshots/archive_downloads")
@@ -135,10 +135,21 @@ class FpgHttpClient:
                 f"{captcha_url}?rrr={int(time.time() * 1000)}"
             ) as resp:
                 image = await resp.read()
-            code = await self.captcha_service.solve_captcha(image)
+            try:
+                code = await self.captcha_service.solve_captcha(image)
+            except AzureRateLimitError as exc:
+                wait_s = max(exc.retry_after, 30.0)
+                logger.warning(
+                    "登入遇 Azure OCR 限流 attempt=%s，冷卻 %.0fs 後再試",
+                    attempt,
+                    wait_s,
+                )
+                await asyncio.sleep(wait_s)
+                continue
             logger.info("登入驗證碼 attempt=%s ocr=%r", attempt, code)
             if not code or code == "error" or len(str(code)) != 4:
-                await asyncio.sleep(2)
+                # OCR 失敗時略為放慢，降低連續打爆 Azure 的機會
+                await asyncio.sleep(3)
                 continue
             html = await self._post_form(
                 login_servlet,
@@ -154,14 +165,19 @@ class FpgHttpClient:
                 referer=settings.LOGIN_URL,
             )
             if "驗證碼錯誤" in html:
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
                 continue
             if "密碼錯誤" in html or "帳號輸入錯誤" in html or "無此帳號" in html:
-                raise RuntimeError("FPG 登入失敗：帳號或密碼錯誤（請檢查 .env）")
+                raise RuntimeError(
+                    "FPG 登入失敗：帳號或密碼錯誤（請檢查 FPG_USERNAME / FPG_PASSWORD）"
+                )
             if "標售公報" in html or "標案管理" in html:
                 logger.info("FPG 登入成功")
                 return
+            logger.warning("登入回應未辨識成功，繼續重試 attempt=%s", attempt)
+            await asyncio.sleep(2)
         raise RuntimeError("FPG 登入失敗：驗證碼重試耗盡")
+
     async def search_bulletin_by_announce_date(
         self,
         start_date: str,

@@ -21,6 +21,7 @@ from app.services.taiwan_case_filter import filter_taiwan_cases
 from app.utils.telegram_digest import (
     DEFAULT_DIGEST_PATH,
     build_fpg_digest,
+    build_fpg_failure_digest,
     write_digest,
 )
 
@@ -113,55 +114,68 @@ async def run_archive(args: argparse.Namespace) -> int:
     records = []
     pages: list = []
 
-    async with FpgHttpClient() as fpg, NotionArchiveService() as notion:
-        await fpg.login()
-        bases = await fpg.search_bulletin_by_announce_date(start, end)
-        if not args.include_mainland:
-            bases, skipped = filter_taiwan_cases(bases)
-            logger.info(
-                "台灣案篩選：保留 %s、排除大陸/非台灣 %s",
-                len(bases),
-                len(skipped),
-            )
-            for record in skipped:
+    try:
+        async with FpgHttpClient() as fpg, NotionArchiveService() as notion:
+            await fpg.login()
+            bases = await fpg.search_bulletin_by_announce_date(start, end)
+            if not args.include_mainland:
+                bases, skipped = filter_taiwan_cases(bases)
                 logger.info(
-                    "[SKIP] %s 電話=%s 聯絡人=%s",
-                    record.case_key,
-                    record.plant_phone or "(空)",
-                    record.contact_display,
+                    "台灣案篩選：保留 %s、排除大陸/非台灣 %s",
+                    len(bases),
+                    len(skipped),
                 )
-        if args.limit and args.limit > 0:
-            bases = bases[: args.limit]
-        logger.info("待擷取案件數：%s", len(bases))
-
-        if bases:
-            await notion.ensure_schema()
-            if not args.skip_notion_view:
-                try:
-                    await notion.configure_desktop_table()
-                except Exception:
-                    logger.exception("調整 Notion view 失敗（不中斷歸檔）")
-            records = await fpg.fetch_cases(bases)
-            to_upsert = []
-            for record in records:
-                if record.mark_incomplete_shell():
-                    logger.error(
-                        "[SHELL] 不寫入 Notion %s 聯絡人=%s 截止=%s %s",
+                for record in skipped:
+                    logger.info(
+                        "[SKIP] %s 電話=%s 聯絡人=%s",
                         record.case_key,
-                        record.contact_display or "(空)",
-                        record.quote_deadline or "(空)",
-                        record.error,
+                        record.plant_phone or "(空)",
+                        record.contact_display,
                     )
-                    continue
-                to_upsert.append(record)
-            pages = await notion.upsert_many(to_upsert)
-            # digest 需要與 records 對齊：空殼對應 None
-            page_by_key = {
-                r.case_key: p for r, p in zip(to_upsert, pages)
-            }
-            pages = [page_by_key.get(r.case_key) for r in records]
-        else:
-            logger.warning("今日無（台灣）公告案件")
+            if args.limit and args.limit > 0:
+                bases = bases[: args.limit]
+            logger.info("待擷取案件數：%s", len(bases))
+
+            if bases:
+                await notion.ensure_schema()
+                if not args.skip_notion_view:
+                    try:
+                        await notion.configure_desktop_table()
+                    except Exception:
+                        logger.exception("調整 Notion view 失敗（不中斷歸檔）")
+                records = await fpg.fetch_cases(bases)
+                to_upsert = []
+                for record in records:
+                    if record.mark_incomplete_shell():
+                        logger.error(
+                            "[SHELL] 不寫入 Notion %s 聯絡人=%s 截止=%s %s",
+                            record.case_key,
+                            record.contact_display or "(空)",
+                            record.quote_deadline or "(空)",
+                            record.error,
+                        )
+                        continue
+                    to_upsert.append(record)
+                pages = await notion.upsert_many(to_upsert)
+                # digest 需要與 records 對齊：空殼對應 None
+                page_by_key = {
+                    r.case_key: p for r, p in zip(to_upsert, pages)
+                }
+                pages = [page_by_key.get(r.case_key) for r in records]
+            else:
+                logger.warning("今日無（台灣）公告案件")
+    except Exception as exc:
+        elapsed = (datetime.now() - started).total_seconds()
+        logger.exception("歸檔中斷：%s", exc)
+        write_digest(
+            build_fpg_failure_digest(
+                announce_label=announce_label,
+                error=str(exc),
+                elapsed_s=elapsed,
+            ),
+            digest_path,
+        )
+        return 1
 
     shells = [r for r in records if r.is_incomplete_shell]
     ok = sum(1 for r in records if r.status != "error")

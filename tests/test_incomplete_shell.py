@@ -1,7 +1,7 @@
 """空殼判定與 Telegram digest 警示：不需網路。
 
 用法:
-  python -m app.scripts.test_incomplete_shell
+  python -m tests.test_incomplete_shell
 """
 from __future__ import annotations
 
@@ -54,10 +54,23 @@ def main() -> int:
         elapsed_s=12.0,
         shells=[shell],
     )
+    _assert(digest.startswith("❌"), digest)
+    _assert("FPG 標售歸檔" in digest, digest)
     _assert("空殼未寫入 Notion" in digest, digest)
     _assert("01-UT1VS5/01" in digest, digest)
     _assert("01-UTAAAA/01" in digest, digest)
     _assert("notion.so/x" in digest, digest)
+
+    ok_only = build_fpg_digest(
+        announce_label="2026/08/04",
+        records=[ok],
+        page_urls=["https://notion.so/x"],
+        ok=1,
+        err=0,
+        elapsed_s=12.0,
+        shells=[],
+    )
+    _assert(ok_only.startswith("✅"), ok_only)
 
     print("OK: incomplete shell / digest 單元測試通過")
     return 0

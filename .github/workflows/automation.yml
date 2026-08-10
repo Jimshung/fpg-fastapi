@@ -12,6 +12,8 @@ on:
 jobs:
   run-archive:
     name: FPG 標售歸檔
+    # 台塑新案幾乎只在早上；下午 16:00 排程略過，避免空殼噪音與多餘 OCR
+    if: github.event_name != 'schedule' || github.event.schedule == '0 0 * * 1-5'
     runs-on: ubuntu-latest
     env:
       LOGIN_URL: ${{ secrets.LOGIN_URL }}
@@ -26,7 +28,7 @@ jobs:
       ENABLE_TELEGRAM_NOTIFY: "true"
       ENVIRONMENT: production
       TZ: Asia/Taipei
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -48,12 +50,24 @@ jobs:
           set -o pipefail
           START_TIME=$(date +%s)
           DIGEST_FILE=telegram_digest.txt
-
           mkdir -p app/utils/screenshots/archive_downloads
 
-          # 預設略過桌面 view 調整，避免 Views API 偶發失敗中斷歸檔
-          python -m app.scripts.run_archive --skip-notion-view --digest-file "$DIGEST_FILE" 2>&1 | tee archive.log
-          EXIT_CODE=${PIPESTATUS[0]}
+          EXIT_CODE=1
+          for ATTEMPT in 1 2 3; do
+            echo "===== FPG archive attempt ${ATTEMPT}/3 ====="
+            # 預設略過桌面 view 調整，避免 Views API 偶發失敗中斷歸檔
+            set +e
+            python -m app.scripts.run_archive --skip-notion-view --digest-file "$DIGEST_FILE" 2>&1 | tee -a archive.log
+            EXIT_CODE=${PIPESTATUS[0]}
+            set -e
+            if [ "$EXIT_CODE" -eq 0 ]; then
+              break
+            fi
+            if [ "$ATTEMPT" -lt 3 ]; then
+              echo "archive failed (exit=${EXIT_CODE}); cooling 90s before retry..."
+              sleep 90
+            fi
+          done
 
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
