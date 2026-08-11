@@ -3,17 +3,18 @@ name: FPG / PCC 歸檔 (HTTP → Notion)
 on:
   schedule:
     # GitHub cron 用 UTC；台北 = UTC+8
-    # 週一至週五 台北 08:00
+    # 08:00 台塑＋PCC；09–12 僅台塑再跑（Notion upsert 可重入，不查上次成敗）
     - cron: "0 0 * * 1-5"
-    # 週一至週五 台北 16:00
+    - cron: "0 1-4 * * 1-5"
+    # 16:00 僅 PCC
     - cron: "0 8 * * 1-5"
   workflow_dispatch:
 
 jobs:
   run-archive:
     name: FPG 標售歸檔
-    # 台塑新案幾乎只在早上；下午 16:00 排程略過，避免空殼噪音與多餘登入
-    if: github.event_name != 'schedule' || github.event.schedule == '0 0 * * 1-5'
+    # 16:00 略過；08–12／手動才跑
+    if: github.event_name != 'schedule' || github.event.schedule != '0 8 * * 1-5'
     runs-on: ubuntu-latest
     env:
       LOGIN_URL: ${{ secrets.LOGIN_URL }}
@@ -125,6 +126,11 @@ jobs:
 
   run-pcc-archive:
     name: PCC 財物變賣歸檔
+    # 僅 08:00／16:00／手動（09–12 不跑 PCC）
+    if: >
+      github.event_name != 'schedule' ||
+      github.event.schedule == '0 0 * * 1-5' ||
+      github.event.schedule == '0 8 * * 1-5'
     runs-on: ubuntu-latest
     env:
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}

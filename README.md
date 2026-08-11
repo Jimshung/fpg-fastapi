@@ -103,9 +103,9 @@ tests/
 ## GitHub Actions
 
 - Workflow：`.github/workflows/automation.yml`
-- 排程：週一–五 台北 08:00、16:00
-- Job：`run-archive`（台塑，**僅早上 08:00**／手動）與 `run-pcc-archive`（政府，早／晚皆跑）並行
-- 台塑歸檔遇登入失敗時，CI 會冷卻後最多再試 3 輪
+- 排程：週一–五 台北 **08:00**（台塑＋PCC）、**09–12 整點**（僅台塑再跑）、**16:00**（僅 PCC）
+- 08 點失敗就等下一整點再跑；不另外查 Actions API。Notion upsert 可重入
+- Job 內台塑失敗仍會冷卻再試最多 3 輪
 - 各 job 歸檔後發 **Telegram 當日速覽**（短清單；完整 log 在 Actions／artifact）
 - PCC job 使用 `--skip-notion-view`（避免每次改 view）；本機完整跑可省略該旗標以調整桌面／月 view
 - Secrets 需含 `PCC_NOTION_DATABASE_ID`、`LOGIN_URL`、`FPG_USERNAME`、`FPG_PASSWORD`（勿再依賴 `BASE_URL`／系統 `USERNAME`）
