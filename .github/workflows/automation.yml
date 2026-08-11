@@ -12,15 +12,13 @@ on:
 jobs:
   run-archive:
     name: FPG 標售歸檔
-    # 台塑新案幾乎只在早上；下午 16:00 排程略過，避免空殼噪音與多餘 OCR
+    # 台塑新案幾乎只在早上；下午 16:00 排程略過，避免空殼噪音與多餘登入
     if: github.event_name != 'schedule' || github.event.schedule == '0 0 * * 1-5'
     runs-on: ubuntu-latest
     env:
       LOGIN_URL: ${{ secrets.LOGIN_URL }}
       FPG_USERNAME: ${{ secrets.FPG_USERNAME }}
       FPG_PASSWORD: ${{ secrets.FPG_PASSWORD }}
-      AZURE_ENDPOINT: ${{ secrets.AZURE_ENDPOINT }}
-      AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}

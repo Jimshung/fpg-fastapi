@@ -3,7 +3,7 @@ description: Automation code must:
 globs: 
 ---
 - Prefer HTTP (`FpgHttpClient`) over browser automation
-- Handle captcha with `CaptchaService` (Azure OCR)
+- Handle captcha with `CaptchaService` (本機 ddddocr)
 - Parse HTML with `fpg_parser`; persist with `NotionArchiveService`
 - Filter mainland cases via `taiwan_case_filter` before Notion upsert
 - Entry point: `python -m app.scripts.run_archive`

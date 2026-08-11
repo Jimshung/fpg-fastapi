@@ -14,7 +14,7 @@ import aiohttp
 
 from app.core.config import settings
 from app.models.case_record import CaseRecord
-from app.services.captcha_service import AzureRateLimitError, CaptchaService
+from app.services.captcha_service import CaptchaService
 from app.services.fpg_parser import (
     fill_missing_announce_dates,
     merge_records,
@@ -135,21 +135,10 @@ class FpgHttpClient:
                 f"{captcha_url}?rrr={int(time.time() * 1000)}"
             ) as resp:
                 image = await resp.read()
-            try:
-                code = await self.captcha_service.solve_captcha(image)
-            except AzureRateLimitError as exc:
-                wait_s = max(exc.retry_after, 30.0)
-                logger.warning(
-                    "登入遇 Azure OCR 限流 attempt=%s，冷卻 %.0fs 後再試",
-                    attempt,
-                    wait_s,
-                )
-                await asyncio.sleep(wait_s)
-                continue
+            code = await self.captcha_service.solve_captcha(image)
             logger.info("登入驗證碼 attempt=%s ocr=%r", attempt, code)
             if not code or code == "error" or len(str(code)) != 4:
-                # OCR 失敗時略為放慢，降低連續打爆 Azure 的機會
-                await asyncio.sleep(3)
+                await asyncio.sleep(1)
                 continue
             html = await self._post_form(
                 login_servlet,

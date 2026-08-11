@@ -6,7 +6,7 @@
 
 ### 台塑 e-fpg
 
-- HTTP 登入（Azure OCR 驗證碼）；網域只來自 `.env` 的 `LOGIN_URL`
+- HTTP 登入（本機 ddddocr 驗證碼）；網域只來自 `.env` 的 `LOGIN_URL`
 - 依**公告日**搜尋標售公報 → 台灣案篩選
 - 報價明細／ZIP 附件 → Notion upsert（SHA-256 去重）
 
@@ -39,7 +39,6 @@ cp .env.example .env   # 再填入實際值
 | ----------------------------------------- | --------------------------------------------------------------- |
 | `FPG_USERNAME` / `FPG_PASSWORD`           | e-fpg 帳密                                                      |
 | `LOGIN_URL`                               | 完整登入頁 URL（網域只放這裡；其他 FPG 路徑由 `fpg_urls` 推導） |
-| `AZURE_ENDPOINT` / `AZURE_API_KEY`        | 驗證碼 OCR                                                      |
 | `NOTION_TOKEN`                            | Notion integration token（兩庫共用）                            |
 | `NOTION_DATABASE_ID`                      | 台塑「FPG 標售案件」                                            |
 | `PCC_NOTION_DATABASE_ID`                  | 政府「財物變賣」（獨立庫）                                      |
@@ -48,7 +47,7 @@ cp .env.example .env   # 再填入實際值
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | 可選通知                                                        |
 | `ENABLE_TELEGRAM_NOTIFY`                  | 是否啟用（本機腳本可關）                                        |
 
-GitHub Actions Secrets 需含：帳密、Azure、Notion（含 `PCC_NOTION_DATABASE_ID`）、Telegram。`LOGIN_URL` 必填；不再需要 `BASE_URL`。
+GitHub Actions Secrets 需含：帳密、Notion（含 `PCC_NOTION_DATABASE_ID`）、Telegram。`LOGIN_URL` 必填；不再需要 `BASE_URL`。
 
 ## 日常執行
 
@@ -106,7 +105,7 @@ tests/
 - Workflow：`.github/workflows/automation.yml`
 - 排程：週一–五 台北 08:00、16:00
 - Job：`run-archive`（台塑，**僅早上 08:00**／手動）與 `run-pcc-archive`（政府，早／晚皆跑）並行
-- 台塑歸檔遇 Azure OCR 429／登入失敗時，CI 會冷卻後最多再試 3 輪
+- 台塑歸檔遇登入失敗時，CI 會冷卻後最多再試 3 輪
 - 各 job 歸檔後發 **Telegram 當日速覽**（短清單；完整 log 在 Actions／artifact）
 - PCC job 使用 `--skip-notion-view`（避免每次改 view）；本機完整跑可省略該旗標以調整桌面／月 view
 - Secrets 需含 `PCC_NOTION_DATABASE_ID`、`LOGIN_URL`、`FPG_USERNAME`、`FPG_PASSWORD`（勿再依賴 `BASE_URL`／系統 `USERNAME`）

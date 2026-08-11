@@ -18,13 +18,6 @@ class Settings(BaseSettings):
     # 環境設定
     ENVIRONMENT: str = "development"  # 'development', 'production', 'test'
 
-    # Azure OCR（登入驗證碼）
-    AZURE_TENANT_ID: Optional[str] = None
-    AZURE_CLIENT_ID: Optional[str] = None
-    AZURE_CLIENT_SECRET: Optional[str] = None
-    AZURE_ENDPOINT: Optional[str] = None
-    AZURE_API_KEY: Optional[str] = None
-
     # FPG 登入
     FPG_USERNAME: str
     FPG_PASSWORD: str
