@@ -21,6 +21,7 @@ from app.services.fpg_parser import (
     parse_bid_go_detail,
     parse_bulletin_case_keys,
     parse_bulletin_cases,
+    parse_bulletin_claim_items,
     parse_bulletin_itemnum,
     parse_bulletin_total_pages,
     parse_fromjsp,
@@ -222,6 +223,142 @@ class FpgHttpClient:
                 filled,
             )
         return records
+
+    async def claim_unselected_cases(
+        self,
+        start_date: str,
+        end_date: str,
+        *,
+        allowed_keys: set[tuple[str, str]],
+        batch_size: int = 40,
+    ) -> list[tuple[str, str, str]]:
+        """對公報「尚未選取」且在 allowed_keys 內的案執行轉報價（BTN=goSave）。
+
+        allowed_keys 為 (tndsalno, inqcnt)。已選取列無 checkbox，會自動略過。
+        回傳實際送出的 (blocid, tndsalno, inqcnt)。
+        """
+        if not allowed_keys:
+            return []
+
+        await self._get(fpg_url(BULLETIN_PAGE_PATH))
+        first = await self._bulletin_list(start_date, end_date, page="1", itemnum="")
+        pages = parse_bulletin_total_pages(first)
+        itemnum = parse_bulletin_itemnum(first)
+
+        selectable: list[tuple[str, str, str]] = []
+        seen: set[tuple[str, str, str]] = set()
+        page_htmls = [first]
+        for page in range(2, pages + 1):
+            html = await self._bulletin_list(
+                start_date,
+                end_date,
+                page=str(page),
+                itemnum=itemnum,
+                btn="goPage",
+            )
+            page_htmls.append(html)
+            await asyncio.sleep(0.2)
+
+        for html in page_htmls:
+            for blocid, tnd, inq in parse_bulletin_claim_items(html):
+                if (tnd, inq) not in allowed_keys:
+                    continue
+                triple = (blocid, tnd, inq)
+                if triple in seen:
+                    continue
+                seen.add(triple)
+                selectable.append(triple)
+
+        if not selectable:
+            logger.info("轉報價：無需處理（無尚未選取／不在允許清單）")
+            return []
+
+        logger.info("轉報價：將送出 %s 案（分批 %s）", len(selectable), batch_size)
+        claimed: list[tuple[str, str, str]] = []
+        for offset in range(0, len(selectable), batch_size):
+            batch = selectable[offset : offset + batch_size]
+            await self._post_go_save(
+                start_date,
+                end_date,
+                batch,
+                itemnum=itemnum,
+            )
+            claimed.extend(batch)
+            logger.info(
+                "轉報價批次 %s–%s／%s 完成",
+                offset + 1,
+                offset + len(batch),
+                len(selectable),
+            )
+            await asyncio.sleep(0.5)
+        return claimed
+
+    async def _post_go_save(
+        self,
+        start_date: str,
+        end_date: str,
+        items: list[tuple[str, str, str]],
+        *,
+        itemnum: str,
+    ) -> str:
+        """模擬清單頁 goSave（轉報價作業）。"""
+        form: list[tuple[str, str]] = [
+            ("FROMJSP", "FJ202C1PA02"),
+            ("BTN", "goSave"),
+            ("inqno_or_class", "sel_complex"),
+            ("inqno_or_class_blocid", ""),
+            ("keyword", "all"),
+            ("selSort", "ntidat"),
+            ("selArea", "T"),
+            ("GpBlocid", "all"),
+            ("bcgnm", ""),
+            ("mcgnm", ""),
+            ("mcgno", ""),
+            ("set_alert_select", "1"),
+            ("set_alert_unselect", "1"),
+            ("mk", "srh"),
+            ("fromBid", ""),
+            ("vtrblocid", ",".join(b for b, _, _ in items)),
+            ("vtrtndsalno", ",".join(t for _, t, _ in items)),
+            ("vtrinqcnt", ",".join(i for _, _, i in items)),
+            ("bcgno", ""),
+            ("scgno", ""),
+            ("page", "1"),
+            ("itemnum", itemnum or ""),
+            ("tndsalno", ""),
+            ("radiodate", "ntidat"),
+            ("date_f", start_date),
+            ("date_e", end_date),
+            ("mtkd", "X"),
+            ("spec", ""),
+            ("radio", "radio2"),
+            ("casestyle", "case3"),
+            ("selectBlocid", "75708007"),
+            ("anno_blocid", ""),
+            ("anno_dpid", ""),
+            ("anno_inqno", ""),
+            ("anno_purkd", ""),
+            ("fromAnno", "C"),
+            ("stoppur", ""),
+            ("notpur", ""),
+            ("inqpur", ""),
+        ]
+        for blocid, tnd, inq in items:
+            form.append(("item", f"{blocid},{tnd},{inq}"))
+
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": fpg_url(BULLETIN_PAGE_PATH),
+        }
+        async with self.session.post(
+            fpg_url(BULLETIN_POST_PATH),
+            data=form,
+            headers=headers,
+        ) as resp:
+            html = await resp.text(errors="replace")
+            if resp.status != 200:
+                raise RuntimeError(f"轉報價 HTTP {resp.status}")
+            return html
 
     async def _bulletin_list(
         self,

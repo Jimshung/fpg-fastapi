@@ -177,6 +177,33 @@ def parse_bulletin_itemnum(html: str) -> str:
     return m.group(1) if m else ""
 
 
+def parse_bulletin_claim_items(html: str) -> list[tuple[str, str, str]]:
+    """尚未選取列的 checkbox：value=blocid,tndsalno,inqcnt（依出現順序去重）。"""
+    found = re.findall(
+        r'<input[^>]*name=["\']item["\'][^>]*value=["\']([^"\']+)["\']',
+        html,
+        flags=re.I,
+    )
+    found += re.findall(
+        r'<input[^>]*value=["\']([^"\']+)["\'][^>]*name=["\']item["\']',
+        html,
+        flags=re.I,
+    )
+    items: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for raw in found:
+        parts = [p.strip() for p in raw.split(",")]
+        if len(parts) != 3:
+            continue
+        blocid, tndsalno, inqcnt = parts
+        key = (blocid, tndsalno, inqcnt)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(key)
+    return items
+
+
 def parse_bid_go_detail(html: str) -> tuple[str, str, str] | None:
     """標案管理清單：goDetail(form, blocid, tndsalno, inqcnt)。"""
     m = re.search(

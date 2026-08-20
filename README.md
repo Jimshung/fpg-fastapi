@@ -8,6 +8,7 @@
 
 - HTTP 登入（本機 ddddocr 驗證碼）；網域只來自 `.env` 的 `LOGIN_URL`
 - 依**公告日**搜尋標售公報 → 台灣案篩選
+- 對「尚未選取」台灣案自動**轉報價**（`goSave`）→ 標案／競標才有報價單與附件
 - 報價明細／ZIP 附件 → Notion upsert（SHA-256 去重）
 
 ### 政府電子採購網・財物變賣
@@ -52,10 +53,11 @@ GitHub Actions Secrets 需含：帳密、Notion（含 `PCC_NOTION_DATABASE_ID`�
 ## 日常執行
 
 ```bash
-# 台塑：今天公告 → 僅台灣案 → Notion
+# 台塑：今天公告 → 轉報價（尚未選取）→ 僅台灣案 → Notion
 python -m app.scripts.run_archive
 python -m app.scripts.run_archive --date 2026/07/22
 python -m app.scripts.run_archive --limit 3
+python -m app.scripts.run_archive --skip-claim   # 略過轉報價（除錯用）
 
 # 政府財物變賣：今天公告（對齊台塑節奏）
 python -m app.scripts.run_pcc_archive

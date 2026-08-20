@@ -4,6 +4,7 @@
   python -m app.scripts.run_archive
   python -m app.scripts.run_archive --date 2026/07/22
   python -m app.scripts.run_archive --start 2026/07/22 --end 2026/07/22
+  python -m app.scripts.run_archive --skip-claim
 """
 from __future__ import annotations
 
@@ -55,6 +56,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--include-mainland",
         action="store_true",
         help="不過濾大陸案（預設只歸檔台灣案）",
+    )
+    parser.add_argument(
+        "--skip-claim",
+        action="store_true",
+        help="略過公報「轉報價」（預設會對尚未選取的台灣案先 goSave）",
     )
     parser.add_argument(
         "--digest-file",
@@ -135,6 +141,17 @@ async def run_archive(args: argparse.Namespace) -> int:
             if args.limit and args.limit > 0:
                 bases = bases[: args.limit]
             logger.info("待擷取案件數：%s", len(bases))
+
+            if bases and not args.skip_claim:
+                allowed = {(r.tndsalno, r.inqcnt) for r in bases}
+                claimed = await fpg.claim_unselected_cases(
+                    start,
+                    end,
+                    allowed_keys=allowed,
+                )
+                logger.info("轉報價完成：實際送出 %s 案", len(claimed))
+                for blocid, tnd, inq in claimed:
+                    logger.info("[CLAIM] %s/%s blocid=%s", tnd, inq, blocid)
 
             if bases:
                 await notion.ensure_schema()
