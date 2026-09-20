@@ -40,7 +40,8 @@ def main() -> int:
     _assert(digest.startswith("❌"), digest)
     _assert("FPG 標售歸檔" in digest, digest)
     _assert("驗證碼重試耗盡" in digest, digest)
-    _assert("Actions log" in digest, digest)
+    _assert("Actions:" in digest, digest)
+    _assert("actions/runs/1" in digest, digest)
 
     pcc_ok = build_pcc_digest(
         range_label="2026-08-10",

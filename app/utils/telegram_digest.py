@@ -1,4 +1,7 @@
-"""Telegram 當日公告速覽（短訊息；完整 log 仍在 Actions）。"""
+"""Telegram 當日公告速覽（純文字；完整 log 仍在 Actions）。
+
+故意不用 HTML／Markdown parse_mode，避免品名含 < > 時 Telegram 拒收。
+"""
 from __future__ import annotations
 
 import os
@@ -12,15 +15,6 @@ from app.models.pcc_asset_record import PccAssetRecord
 DIGEST_CHAR_LIMIT = 3500
 MAX_ITEMS = 10
 DEFAULT_DIGEST_PATH = Path("telegram_digest.txt")
-
-
-def html_escape(text: str) -> str:
-    return (
-        (text or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
 
 
 def clip(text: str, limit: int = 28) -> str:
@@ -59,9 +53,8 @@ def resolve_actions_run_url(explicit: str | None = None) -> str:
 
 
 def _job_header(*, success: bool, job_name: str) -> str:
-    """仿 GitHub Actions Summary：標題列先放成功／失敗 icon。"""
     icon = "✅" if success else "❌"
-    return f"{icon} <b>{html_escape(job_name)}</b>"
+    return f"{icon} {job_name}"
 
 
 def _metrics_line(*, ok: int, err: int, elapsed_s: float) -> str:
@@ -74,7 +67,7 @@ def _append_actions_link(lines: list[str], actions_url: str | None) -> None:
     if not url:
         return
     lines.append("")
-    lines.append(f'<a href="{html_escape(url)}">Actions log</a>')
+    lines.append(f"Actions: {url}")
 
 
 def _fit(lines: list[str], limit: int = DIGEST_CHAR_LIMIT) -> str:
@@ -94,10 +87,10 @@ def build_fpg_failure_digest(
     """登入或歸檔早期失敗時的短訊（仍要讓 Telegram 看得到原因）。"""
     lines = [
         _job_header(success=False, job_name="FPG 標售歸檔"),
-        f"<b>📅 {html_escape(announce_label)}・台塑標售</b>",
+        f"📅 {announce_label}・台塑標售",
         "登入／歸檔中斷",
         "",
-        html_escape(error or "未知錯誤"),
+        (error or "未知錯誤").strip(),
         f"耗時 {elapsed_s:.0f}s",
     ]
     _append_actions_link(lines, actions_url)
@@ -128,17 +121,17 @@ def build_fpg_digest(
 
     lines = [
         _job_header(success=success, job_name="FPG 標售歸檔"),
-        f"<b>📅 {html_escape(announce_label)}・台塑標售</b>",
+        f"📅 {announce_label}・台塑標售",
         _metrics_line(ok=ok, err=err, elapsed_s=elapsed_s),
         "",
     ]
     if shell_list:
         lines.append(
-            f"⚠ <b>空殼未寫入 Notion（{len(shell_list)}）</b>："
+            f"⚠ 空殼未寫入 Notion（{len(shell_list)}）："
             "公報細節未解析且無報價單"
         )
         for record in shell_list[:max_items]:
-            lines.append(f"・{html_escape(record.case_key)}")
+            lines.append(f"・{record.case_key}")
         if len(shell_list) > max_items:
             lines.append(f"…另有 {len(shell_list) - max_items} 筆")
         lines.append("請用 --date 該公告日重跑或檢查 parser")
@@ -156,12 +149,11 @@ def build_fpg_digest(
                 summary = "（無品名）"
             mark = "" if record.status != "error" else " ⚠"
             lines.append(
-                f"{i}. {html_escape(record.case_key)}｜"
-                f"{html_escape(summary)}｜截止 {short_date(record.quote_deadline)}"
-                f"{mark}"
+                f"{i}. {record.case_key}｜{summary}｜"
+                f"截止 {short_date(record.quote_deadline)}{mark}"
             )
             if url:
-                lines.append(f'<a href="{html_escape(url)}">Notion</a>')
+                lines.append(f"Notion: {url}")
             lines.append("")
 
         remaining = len(visible_pairs) - len(shown)
@@ -186,7 +178,7 @@ def build_pcc_digest(
     success = err == 0
     lines = [
         _job_header(success=success, job_name="PCC 財物變賣歸檔"),
-        f"<b>📅 {html_escape(range_label)}・政府財物變賣</b>",
+        f"📅 {range_label}・政府財物變賣",
         _metrics_line(ok=ok, err=err, elapsed_s=elapsed_s),
         "",
     ]
@@ -199,15 +191,11 @@ def build_pcc_digest(
             assets = clip(record.assets_name, 22)
             mark = "" if record.status != "error" else " ⚠"
             lines.append(
-                f"{i}. {html_escape(record.case_no or record.pk)}｜"
-                f"{html_escape(org)}｜{html_escape(assets)}｜"
-                f"截止 {short_date(record.tender_deadline)}"
-                f"{mark}"
+                f"{i}. {record.case_no or record.pk}｜{org}｜{assets}｜"
+                f"截止 {short_date(record.tender_deadline)}{mark}"
             )
             if record.source_url:
-                lines.append(
-                    f'<a href="{html_escape(record.source_url)}">採購網</a>'
-                )
+                lines.append(f"採購網: {record.source_url}")
             lines.append("")
 
         remaining = len(records) - len(shown)

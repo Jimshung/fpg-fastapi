@@ -71,17 +71,23 @@ jobs:
 
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
-          echo "EXECUTION_TIME=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_ENV"
+          EXEC_TIME=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')
+          echo "EXECUTION_TIME=$EXEC_TIME" >> "$GITHUB_ENV"
           echo "EXECUTION_DURATION=$DURATION" >> "$GITHUB_ENV"
 
           if [ ! -f "$DIGEST_FILE" ]; then
             printf '%s\n' "❌ 台塑歸檔未產生 digest（腳本可能提早失敗）" > "$DIGEST_FILE"
           fi
+          # 結尾寫進同一檔，Telegram 只讀 message_file（純文字、無 HTML）
+          TRIGGER_LABEL='手動'
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            TRIGGER_LABEL='排程'
+          fi
           {
-            echo "digest<<EOF"
-            cat "$DIGEST_FILE"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+            printf '\n'
+            printf '⏱ %s｜%ss｜%s\n' "$EXEC_TIME" "$DURATION" "$TRIGGER_LABEL"
+            printf 'Actions: %s\n' "$ACTIONS_RUN_URL"
+          } >> "$DIGEST_FILE"
 
           if [ "$EXIT_CODE" -eq 0 ]; then
             echo "status=success" >> "$GITHUB_OUTPUT"
@@ -100,19 +106,16 @@ jobs:
           echo "執行狀態: ${{ steps.archive.outputs.status }}"
           echo "================================"
 
+      # 純文字 + message_file；通知失敗不拖垮歸檔結果
       - name: 發送 Telegram 通知
         if: always()
-        uses: appleboy/telegram-action@master
+        continue-on-error: true
+        uses: appleboy/telegram-action@214f06cfa3d3a588c1472116889437e7c6fd29b1 # v1.1.1
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          format: html
           disable_web_page_preview: true
-          message: |
-            ${{ steps.archive.outputs.digest }}
-
-            ⏱ ${{ env.EXECUTION_TIME }}｜${{ env.EXECUTION_DURATION }}s｜${{ github.event_name == 'schedule' && '排程' || '手動' }}
-            <a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">Actions log</a>
+          message_file: telegram_digest.txt
 
       - name: Upload logs
         if: always()
@@ -173,17 +176,22 @@ jobs:
 
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
-          echo "PCC_EXECUTION_TIME=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_ENV"
+          EXEC_TIME=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')
+          echo "PCC_EXECUTION_TIME=$EXEC_TIME" >> "$GITHUB_ENV"
           echo "PCC_EXECUTION_DURATION=$DURATION" >> "$GITHUB_ENV"
 
           if [ ! -f "$DIGEST_FILE" ]; then
             printf '%s\n' "❌ 政府財物歸檔未產生 digest（腳本可能提早失敗）" > "$DIGEST_FILE"
           fi
+          TRIGGER_LABEL='手動'
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            TRIGGER_LABEL='排程'
+          fi
           {
-            echo "digest<<EOF"
-            cat "$DIGEST_FILE"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+            printf '\n'
+            printf '⏱ %s｜%ss｜%s\n' "$EXEC_TIME" "$DURATION" "$TRIGGER_LABEL"
+            printf 'Actions: %s\n' "$ACTIONS_RUN_URL"
+          } >> "$DIGEST_FILE"
 
           if [ "$EXIT_CODE" -eq 0 ]; then
             echo "status=success" >> "$GITHUB_OUTPUT"
@@ -194,17 +202,13 @@ jobs:
 
       - name: 發送 Telegram 通知 (PCC)
         if: always()
-        uses: appleboy/telegram-action@master
+        continue-on-error: true
+        uses: appleboy/telegram-action@214f06cfa3d3a588c1472116889437e7c6fd29b1 # v1.1.1
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          format: html
           disable_web_page_preview: true
-          message: |
-            ${{ steps.pcc.outputs.digest }}
-
-            ⏱ ${{ env.PCC_EXECUTION_TIME }}｜${{ env.PCC_EXECUTION_DURATION }}s｜${{ github.event_name == 'schedule' && '排程' || '手動' }}
-            <a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">Actions log</a>
+          message_file: telegram_digest.txt
 
       - name: Upload PCC logs
         if: always()
