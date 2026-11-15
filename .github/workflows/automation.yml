@@ -31,12 +31,12 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.9"
+          python-version: "3.12"
           cache: pip
 
       - name: Install dependencies
@@ -119,7 +119,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: archive-logs
           path: |
@@ -151,12 +151,12 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.9"
+          python-version: "3.12"
           cache: pip
 
       - name: Install dependencies
@@ -212,7 +212,7 @@ jobs:
 
       - name: Upload PCC logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: pcc-archive-logs
           path: |
