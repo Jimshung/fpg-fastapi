@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 from datetime import date
@@ -14,11 +13,13 @@ from app.core.config import settings
 from app.models.pcc_asset_record import PccAssetRecord
 from app.services.notion_archive_service import (
     NOTION_REQUEST_PAUSE,
+    NotionThrottle,
     announce_month_filter,
     is_month_view_name,
     month_view_name,
     next_calendar_month,
     normalize_db_id,
+    notion_request,
     rich_text,
 )
 
@@ -192,6 +193,7 @@ class PccNotionArchiveService:
             file_upload_version or settings.NOTION_FILE_UPLOAD_VERSION
         )
         self._session: Optional[aiohttp.ClientSession] = None
+        self._throttle = NotionThrottle()
 
     async def __aenter__(self) -> "PccNotionArchiveService":
         self._session = aiohttp.ClientSession(
@@ -228,23 +230,14 @@ class PccNotionArchiveService:
         version: str | None = None,
     ) -> dict:
         url = path if path.startswith("http") else f"{API}{path}"
-        async with self.session.request(
+        return await notion_request(
+            self.session,
             method,
             url,
             headers=self._headers(version, json_body=True),
-            json=json_body,
-        ) as resp:
-            text = await resp.text()
-            try:
-                data = json.loads(text) if text else {}
-            except json.JSONDecodeError:
-                data = {"raw": text}
-            if resp.status >= 400:
-                raise RuntimeError(
-                    f"{method} {url} -> {resp.status}: "
-                    f"{json.dumps(data, ensure_ascii=False)[:900]}"
-                )
-            return data
+            json_body=json_body,
+            throttle=self._throttle,
+        )
 
     async def ensure_schema(self) -> dict:
         db = await self.request("GET", f"/databases/{self.database_id}")
