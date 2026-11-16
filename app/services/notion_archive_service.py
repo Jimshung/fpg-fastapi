@@ -5,6 +5,7 @@ import asyncio
 import calendar
 import json
 import logging
+import random
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -30,6 +31,91 @@ API = "https://api.notion.com/v1"
 NOTION_REQUEST_PAUSE = 0.35
 NOTION_UPLOAD_PAUSE = 0.25
 NOTION_DELETE_PAUSE = 0.2
+
+# 429／暫時性 5xx 重試：優先讀 Retry-After，否則指數退避（含 jitter）
+NOTION_MAX_RETRIES = 5
+NOTION_RETRY_STATUSES = frozenset({429, 502, 503, 504})
+NOTION_BACKOFF_BASE = 1.0
+NOTION_BACKOFF_MAX = 30.0
+# 被限流後，後續每個請求額外放慢；成功則逐步衰減
+NOTION_THROTTLE_STEP = 0.5
+NOTION_THROTTLE_MAX = 3.0
+
+
+def notion_retry_delay(attempt: int, retry_after: str | None = None) -> float:
+    """第 attempt 次（從 0 起算）重試前的等待秒數。"""
+    if retry_after:
+        try:
+            return min(max(float(retry_after), 0.0), NOTION_BACKOFF_MAX)
+        except ValueError:
+            pass
+    base = min(NOTION_BACKOFF_BASE * (2**attempt), NOTION_BACKOFF_MAX)
+    return base + random.uniform(0, base * 0.25)
+
+
+class NotionThrottle:
+    """遇到 429 就放慢後續請求，成功則逐步恢復。"""
+
+    def __init__(self) -> None:
+        self.extra_pause = 0.0
+
+    def on_rate_limited(self) -> None:
+        self.extra_pause = min(
+            self.extra_pause + NOTION_THROTTLE_STEP, NOTION_THROTTLE_MAX
+        )
+
+    def on_success(self) -> None:
+        self.extra_pause *= 0.8
+        if self.extra_pause < 0.05:
+            self.extra_pause = 0.0
+
+
+async def notion_request(
+    session: aiohttp.ClientSession,
+    method: str,
+    url: str,
+    *,
+    headers: dict,
+    json_body: dict | None,
+    throttle: NotionThrottle,
+) -> dict:
+    """送出 Notion 請求；429／502／503／504 會自動退避重試。"""
+    for attempt in range(NOTION_MAX_RETRIES + 1):
+        if throttle.extra_pause:
+            await asyncio.sleep(throttle.extra_pause)
+        async with session.request(
+            method, url, headers=headers, json=json_body
+        ) as resp:
+            text = await resp.text()
+            try:
+                data = json.loads(text) if text else {}
+            except json.JSONDecodeError:
+                data = {"raw": text}
+            status = resp.status
+            retry_after = resp.headers.get("Retry-After")
+        if status < 400:
+            throttle.on_success()
+            return data
+        if status in NOTION_RETRY_STATUSES and attempt < NOTION_MAX_RETRIES:
+            if status == 429:
+                throttle.on_rate_limited()
+            delay = notion_retry_delay(attempt, retry_after)
+            logger.warning(
+                "Notion %s %s -> %s，%.1fs 後重試 (%d/%d)",
+                method,
+                url,
+                status,
+                delay,
+                attempt + 1,
+                NOTION_MAX_RETRIES,
+            )
+            await asyncio.sleep(delay)
+            continue
+        raise RuntimeError(
+            f"{method} {url} -> {status}: "
+            f"{json.dumps(data, ensure_ascii=False)[:900]}"
+        )
+    raise RuntimeError(f"{method} {url}: retries exhausted")  # pragma: no cover
 
 PRIORITY_COLUMNS = [
     "標售案號",
@@ -118,6 +204,7 @@ class NotionArchiveService:
             file_upload_version or settings.NOTION_FILE_UPLOAD_VERSION
         )
         self._session: Optional[aiohttp.ClientSession] = None
+        self._throttle = NotionThrottle()
 
     async def __aenter__(self) -> "NotionArchiveService":
         self._session = aiohttp.ClientSession(
@@ -154,23 +241,14 @@ class NotionArchiveService:
         version: str | None = None,
     ) -> dict:
         url = path if path.startswith("http") else f"{API}{path}"
-        async with self.session.request(
+        return await notion_request(
+            self.session,
             method,
             url,
             headers=self._headers(version, json_body=True),
-            json=json_body,
-        ) as resp:
-            text = await resp.text()
-            try:
-                data = json.loads(text) if text else {}
-            except json.JSONDecodeError:
-                data = {"raw": text}
-            if resp.status >= 400:
-                raise RuntimeError(
-                    f"{method} {url} -> {resp.status}: "
-                    f"{json.dumps(data, ensure_ascii=False)[:900]}"
-                )
-            return data
+            json_body=json_body,
+            throttle=self._throttle,
+        )
 
     async def ensure_schema(self) -> dict:
         db = await self.request("GET", f"/databases/{self.database_id}")
