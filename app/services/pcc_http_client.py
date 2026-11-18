@@ -29,6 +29,8 @@ DETAIL_BY_KIND = {
     "normal": f"{BASE}/opas/aspam/public/readOneAspamDetail",
 }
 REQUEST_PAUSE = 0.25
+# 取 _csrf 失敗時的重試等待秒數（共重試 2 次）
+CSRF_RETRY_DELAYS = (5.0, 15.0)
 # 截止投標回填用：遠迄日（實測 2026 年底後無更多筆）
 DEFAULT_DEADLINE_END = date(2027, 12, 31)
 
@@ -42,9 +44,25 @@ def displaytag_page_number(url: str) -> int:
     return int(m.group(1)) if m else 0
 
 
+def summarize_response(status: int, headers, html: str, limit: int = 300) -> str:
+    """回應摘要（狀態碼、關鍵標頭、內文前段純文字），供診斷用。"""
+    keys = ("Content-Type", "Server", "Retry-After", "Via", "Location")
+    picked = {k: headers.get(k) for k in keys if headers.get(k)}
+    text = re.sub(r"<(script|style)[\s\S]*?</\1>", " ", html, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()[:limit]
+    return f"HTTP {status} 標頭={picked} 長度={len(html)} 內文={text!r}"
+
+
 class PccHttpClient:
-    def __init__(self, *, request_pause: float = REQUEST_PAUSE) -> None:
+    def __init__(
+        self,
+        *,
+        request_pause: float = REQUEST_PAUSE,
+        csrf_retry_delays: tuple[float, ...] = CSRF_RETRY_DELAYS,
+    ) -> None:
         self.request_pause = request_pause
+        self.csrf_retry_delays = csrf_retry_delays
         self._session: Optional[aiohttp.ClientSession] = None
         self._csrf = ""
 
@@ -75,12 +93,28 @@ class PccHttpClient:
         return self._session
 
     async def _refresh_csrf(self) -> str:
-        async with self.session.get(INDEX) as resp:
-            html = await resp.text(errors="replace")
-        self._csrf = parse_csrf(html)
-        if not self._csrf:
-            raise RuntimeError("PCC 找不到 _csrf")
-        return self._csrf
+        """取得 _csrf；失敗時記錄回應摘要並退避重試（GitHub IP 偶遭擋／限流）。"""
+        delays = self.csrf_retry_delays
+        attempts = len(delays) + 1
+        last_error = "PCC 找不到 _csrf"
+        for attempt in range(1, attempts + 1):
+            try:
+                async with self.session.get(INDEX) as resp:
+                    html = await resp.text(errors="replace")
+                    summary = summarize_response(resp.status, resp.headers, html)
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                summary = f"{type(exc).__name__}: {exc}"
+                html = ""
+            self._csrf = parse_csrf(html)
+            if self._csrf:
+                return self._csrf
+            last_error = f"PCC 找不到 _csrf（{summary}）"
+            logger.warning(
+                "PCC 取 _csrf 失敗 (%d/%d)：%s", attempt, attempts, summary
+            )
+            if attempt < attempts:
+                await asyncio.sleep(delays[attempt - 1])
+        raise RuntimeError(last_error)
 
     async def _get_html(self, url: str, *, params: dict | None = None) -> tuple[int, str]:
         await asyncio.sleep(self.request_pause)
