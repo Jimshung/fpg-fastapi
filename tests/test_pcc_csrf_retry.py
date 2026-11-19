@@ -5,7 +5,7 @@ import aiohttp
 import pytest
 
 from app.services import pcc_http_client as mod
-from app.services.pcc_http_client import PccHttpClient, summarize_response
+from app.services.pcc_http_client import PccHttpClient, is_waf_blocked, summarize_response
 
 GOOD = '<form><input type="hidden" name="_csrf" value="TOKEN123"></form>'
 BLOCKED = "<html><body><h1>Access Denied</h1><script>x()</script></body></html>"
@@ -63,6 +63,23 @@ def test_summary_contains_status_headers_and_stripped_text():
     )
     assert "HTTP 403" in s and "AkamaiGHost" in s and "Retry-After" in s
     assert "Access Denied" in s and "x()" not in s  # script 內容不外洩
+
+
+WAF_BLOCK_PAGE = (
+    "<html><head><title>The URL you requested has been blocked</title></head>"
+    "<body>Request Rejected</body></html>"
+)
+
+
+def test_waf_block_page_is_tagged():
+    s = summarize_response(500, {}, WAF_BLOCK_PAGE)
+    assert s.startswith("[WAF 封鎖] HTTP 500")
+    assert is_waf_blocked(WAF_BLOCK_PAGE)
+
+
+def test_non_waf_pages_are_not_tagged():
+    assert "[WAF 封鎖]" not in summarize_response(403, {}, BLOCKED)
+    assert not is_waf_blocked(GOOD)
 
 
 def test_success_first_try_no_sleep(sleeps):

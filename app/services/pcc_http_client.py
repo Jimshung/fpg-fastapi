@@ -44,14 +44,28 @@ def displaytag_page_number(url: str) -> int:
     return int(m.group(1)) if m else 0
 
 
+# WAF 封鎖頁（實測：HTTP 500，<title>The URL you requested has been blocked</title>）
+WAF_BLOCK_MARKERS = ("the url you requested has been blocked",)
+
+
+def is_waf_blocked(html: str) -> bool:
+    """內文是否為 WAF 封鎖頁（與「token 缺失」等其他失敗區分）。"""
+    head = html[:5000].lower()
+    return any(m in head for m in WAF_BLOCK_MARKERS)
+
+
 def summarize_response(status: int, headers, html: str, limit: int = 300) -> str:
-    """回應摘要（狀態碼、關鍵標頭、內文前段純文字），供診斷用。"""
+    """回應摘要（狀態碼、關鍵標頭、內文前段純文字），供診斷用。
+
+    若為 WAF 封鎖頁，開頭加上「[WAF 封鎖]」標記，日誌一眼可辨。
+    """
     keys = ("Content-Type", "Server", "Retry-After", "Via", "Location")
     picked = {k: headers.get(k) for k in keys if headers.get(k)}
     text = re.sub(r"<(script|style)[\s\S]*?</\1>", " ", html, flags=re.I)
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text).strip()[:limit]
-    return f"HTTP {status} 標頭={picked} 長度={len(html)} 內文={text!r}"
+    tag = "[WAF 封鎖] " if is_waf_blocked(html) else ""
+    return f"{tag}HTTP {status} 標頭={picked} 長度={len(html)} 內文={text!r}"
 
 
 class PccHttpClient:
