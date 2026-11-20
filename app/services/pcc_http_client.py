@@ -46,14 +46,20 @@ def displaytag_page_number(url: str) -> int:
     return int(m.group(1)) if m else 0
 
 
-# WAF 封鎖頁（實測：HTTP 500，<title>The URL you requested has been blocked</title>）
-WAF_BLOCK_MARKERS = ("the url you requested has been blocked",)
+# WAF 封鎖頁（實測：HTTP 500，頁面約 38KB，關鍵字出現在內文尾端而非開頭）
+WAF_BLOCK_MARKERS = (
+    "the url you requested has been blocked",
+    "web page blocked!",
+)
 
 
 def is_waf_blocked(html: str) -> bool:
-    """內文是否為 WAF 封鎖頁（與「token 缺失」等其他失敗區分）。"""
-    head = html[:5000].lower()
-    return any(m in head for m in WAF_BLOCK_MARKERS)
+    """內文是否為 WAF 封鎖頁（與「token 缺失」等其他失敗區分）。
+
+    必須檢查整份內文：封鎖頁開頭是一大段 CSS，關鍵字在尾端。
+    """
+    low = html.lower()
+    return any(m in low for m in WAF_BLOCK_MARKERS)
 
 
 class PccWafBlockedError(RuntimeError):
