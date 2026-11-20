@@ -77,6 +77,18 @@ def test_waf_block_page_is_tagged():
     assert is_waf_blocked(WAF_BLOCK_PAGE)
 
 
+def test_real_block_page_has_marker_far_from_start():
+    """實測封鎖頁約 38KB，關鍵字在第 38180 字元（前面是大段 CSS）。"""
+    page = (
+        "<html><head><style>" + "x{a:b}" * 6000 + "</style></head><body>"
+        "The URL you requested has been blocked Web Page Blocked! "
+        "Client IP: 1.2.3.4 Attack ID: 20000021</body></html>"
+    )
+    assert page.lower().index("the url you requested") > 30000
+    assert is_waf_blocked(page)
+    assert summarize_response(500, {}, page).startswith("[WAF 封鎖]")
+
+
 def test_non_waf_pages_are_not_tagged():
     assert "[WAF 封鎖]" not in summarize_response(403, {}, BLOCKED)
     assert not is_waf_blocked(GOOD)
