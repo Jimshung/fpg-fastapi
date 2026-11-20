@@ -310,6 +310,57 @@ class PccNotionArchiveService:
         results = data.get("results") or []
         return results[0] if results else None
 
+    async def latest_announce_date(self) -> date | None:
+        """資料庫中最新一筆「公告日期」（不含狀態為 error 者）；無資料回 None。"""
+        data = await self.request(
+            "POST",
+            f"/databases/{self.database_id}/query",
+            json_body={
+                "filter": {
+                    "and": [
+                        {"property": "公告日期", "date": {"is_not_empty": True}},
+                        {"property": "狀態", "select": {"does_not_equal": "error"}},
+                    ]
+                },
+                "sorts": [{"property": "公告日期", "direction": "descending"}],
+                "page_size": 1,
+            },
+        )
+        for page in data.get("results") or []:
+            start = (
+                (page.get("properties", {}).get("公告日期") or {}).get("date") or {}
+            ).get("start")
+            if start:
+                return date.fromisoformat(start[:10])
+        return None
+
+    async def archived_pks_since(self, start: date) -> set[str]:
+        """公告日期 >= start 且狀態不是 error 的系統PK（已成功歸檔者）。"""
+        pks: set[str] = set()
+        body: dict = {
+            "filter": {
+                "and": [
+                    {"property": "公告日期", "date": {"on_or_after": start.isoformat()}},
+                    {"property": "狀態", "select": {"does_not_equal": "error"}},
+                ]
+            },
+            "page_size": 100,
+        }
+        while True:
+            data = await self.request(
+                "POST", f"/databases/{self.database_id}/query", json_body=body
+            )
+            for page in data.get("results") or []:
+                rich = (page.get("properties", {}).get("系統PK") or {}).get(
+                    "rich_text"
+                ) or []
+                pk = "".join(t.get("plain_text", "") for t in rich).strip()
+                if pk:
+                    pks.add(pk)
+            if not data.get("has_more") or not data.get("next_cursor"):
+                return pks
+            body["start_cursor"] = data["next_cursor"]
+
     @staticmethod
     def _date_prop(value: str) -> dict | None:
         if not value:
