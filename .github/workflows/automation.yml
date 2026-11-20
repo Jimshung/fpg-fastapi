@@ -191,8 +191,11 @@ jobs:
           START_TIME=$(date +%s)
           DIGEST_FILE=telegram_digest.txt
 
+          # 預設 bash -e + pipefail 會在腳本失敗時直接中斷，後面讀不到結束碼
+          set +e
           python -m app.scripts.run_pcc_archive --skip-notion-view --digest-file "$DIGEST_FILE" 2>&1 | tee pcc_archive.log
           EXIT_CODE=${PIPESTATUS[0]}
+          set -e
 
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
