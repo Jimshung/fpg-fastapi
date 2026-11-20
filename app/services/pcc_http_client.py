@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from datetime import date
 from typing import Optional
@@ -28,7 +29,8 @@ DETAIL_BY_KIND = {
     "new": f"{BASE}/opas/aspam/public/readOneAspamDetailNew",
     "normal": f"{BASE}/opas/aspam/public/readOneAspamDetail",
 }
-REQUEST_PAUSE = 0.25
+# 請求間隔（秒）；另加 0~50% 隨機抖動，避免固定節奏的連續請求
+REQUEST_PAUSE = 1.0
 # 取 _csrf 失敗時的重試等待秒數（共重試 2 次）
 CSRF_RETRY_DELAYS = (5.0, 15.0)
 # 截止投標回填用：遠迄日（實測 2026 年底後無更多筆）
@@ -52,6 +54,10 @@ def is_waf_blocked(html: str) -> bool:
     """內文是否為 WAF 封鎖頁（與「token 缺失」等其他失敗區分）。"""
     head = html[:5000].lower()
     return any(m in head for m in WAF_BLOCK_MARKERS)
+
+
+class PccWafBlockedError(RuntimeError):
+    """PCC 回傳 WAF 封鎖頁；繼續請求只會加深封鎖，應立即停止。"""
 
 
 def summarize_response(status: int, headers, html: str, limit: int = 300) -> str:
@@ -79,6 +85,7 @@ class PccHttpClient:
         self.csrf_retry_delays = csrf_retry_delays
         self._session: Optional[aiohttp.ClientSession] = None
         self._csrf = ""
+        self.waf_blocked = False
 
     async def __aenter__(self) -> "PccHttpClient":
         self._session = aiohttp.ClientSession(
@@ -122,6 +129,10 @@ class PccHttpClient:
             self._csrf = parse_csrf(html)
             if self._csrf:
                 return self._csrf
+            if is_waf_blocked(html):
+                self.waf_blocked = True
+                logger.error("PCC 取 _csrf 遭 WAF 封鎖，停止重試：%s", summary)
+                raise PccWafBlockedError(f"PCC 遭 WAF 封鎖（{summary}）")
             last_error = f"PCC 找不到 _csrf（{summary}）"
             logger.warning(
                 "PCC 取 _csrf 失敗 (%d/%d)：%s", attempt, attempts, summary
@@ -131,11 +142,24 @@ class PccHttpClient:
         raise RuntimeError(last_error)
 
     async def _get_html(self, url: str, *, params: dict | None = None) -> tuple[int, str]:
-        await asyncio.sleep(self.request_pause)
+        await asyncio.sleep(
+            self.request_pause * (1 + random.uniform(0, 0.5))
+            if self.request_pause
+            else 0
+        )
         async with self.session.get(
             url, params=params, headers={"Referer": INDEX}
         ) as resp:
-            return resp.status, await resp.text(errors="replace")
+            html = await resp.text(errors="replace")
+            self._raise_if_waf_blocked(resp.status, resp.headers, html)
+            return resp.status, html
+
+    def _raise_if_waf_blocked(self, status: int, headers, html: str) -> None:
+        if is_waf_blocked(html):
+            self.waf_blocked = True
+            raise PccWafBlockedError(
+                f"PCC 遭 WAF 封鎖（{summarize_response(status, headers, html)}）"
+            )
 
     async def _search(
         self,
@@ -170,6 +194,7 @@ class PccHttpClient:
             },
         ) as resp:
             html = await resp.text(errors="replace")
+            self._raise_if_waf_blocked(resp.status, resp.headers, html)
 
         total = parse_result_total(html)
         records = parse_search_summaries(html)
@@ -267,6 +292,8 @@ class PccHttpClient:
             record.source_url = source_url
             record.status = "ok"
             return record
+        except PccWafBlockedError:
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.exception("PCC 詳情解析失敗 pk=%s", base.pk)
             base.status = "error"
@@ -292,5 +319,13 @@ class PccHttpClient:
                 base.pk,
                 base.case_no,
             )
-            out.append(await self.fetch_detail(base))
+            try:
+                out.append(await self.fetch_detail(base))
+            except PccWafBlockedError as exc:
+                logger.error("PCC 遭 WAF 封鎖，停止擷取剩餘 %s 筆", len(bases) - i + 1)
+                for rest in bases[i - 1 :]:
+                    rest.status = "error"
+                    rest.error = f"WAF 封鎖，未擷取（{exc}）"[:300]
+                    out.append(rest)
+                break
         return out

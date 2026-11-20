@@ -19,7 +19,11 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from app.core.config import settings
-from app.services.pcc_http_client import DEFAULT_DEADLINE_END, PccHttpClient
+from app.services.pcc_http_client import (
+    DEFAULT_DEADLINE_END,
+    PccHttpClient,
+    PccWafBlockedError,
+)
 from app.services.pcc_notion_archive_service import PccNotionArchiveService
 from app.utils.telegram_digest import (
     DEFAULT_DIGEST_PATH,
@@ -127,6 +131,9 @@ def _emit_digest(
     write_digest(text, path)
     logger.info("已寫入 Telegram digest → %s（%s 字）", path, len(text))
 
+# 遭 WAF 封鎖時的結束碼（workflow 據此拉長重跑等待）
+WAF_EXIT_CODE = 3
+
 
 async def run_pcc_archive(args: argparse.Namespace) -> int:
     use_deadline = bool(args.deadline_from)
@@ -158,10 +165,18 @@ async def run_pcc_archive(args: argparse.Namespace) -> int:
     pages: list = []
 
     async with PccHttpClient() as pcc, PccNotionArchiveService() as notion:
-        if use_deadline:
-            bases = await pcc.search_by_tender_deadline(start, end)
-        else:
-            bases = await pcc.search_by_announce_date(start, end)
+        try:
+            if use_deadline:
+                bases = await pcc.search_by_tender_deadline(start, end)
+            else:
+                bases = await pcc.search_by_announce_date(start, end)
+        except PccWafBlockedError as exc:
+            logger.error("PCC 遭 WAF 封鎖，本次不再請求：%s", exc)
+            write_digest(
+                f"🚫 PCC 遭 WAF 封鎖（{range_label}），本次未擷取任何案件",
+                digest_path,
+            )
+            return WAF_EXIT_CODE
         if args.limit and args.limit > 0:
             bases = bases[: args.limit]
         logger.info("待擷取案件數：%s", len(bases))
@@ -209,6 +224,8 @@ async def run_pcc_archive(args: argparse.Namespace) -> int:
         err=err,
         elapsed_s=elapsed,
     )
+    if err and pcc.waf_blocked:
+        return WAF_EXIT_CODE
     return 0 if err == 0 else 1
 
 
