@@ -6,6 +6,10 @@
   python -m app.scripts.run_pcc_archive --start 2026/07/22 --end 2026/07/29
   python -m app.scripts.run_pcc_archive --days 3
 
+低頻探測＋自動補洞（排程用）:
+  python -m app.scripts.run_pcc_archive --catch-up
+  # 從 Notion 最新公告日補到今天（最多回推 CATCH_UP_MAX_DAYS 天），只擷取尚未成功歸檔的案件
+
 歷史回填（依截止投標）:
   python -m app.scripts.run_pcc_archive --deadline-from 2026/07/29
 """
@@ -61,6 +65,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="截止投標迄日 YYYY/MM/DD（預設 2027/12/31）",
     )
     parser.add_argument(
+        "--catch-up",
+        action="store_true",
+        help="從 Notion 最新公告日補到今天，只擷取尚未成功歸檔的案件（與日期參數互斥）",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=0,
@@ -100,6 +109,21 @@ def resolve_announce_range(args: argparse.Namespace) -> tuple[date, date]:
     return today, today
 
 
+def resolve_catch_up_range(
+    latest: date | None, today: date, *, max_days: int = 14
+) -> tuple[date, date]:
+    """補洞區間：從 Notion 最新公告日（含當天，可能只歸檔了一部分）到今天。"""
+    floor = today - timedelta(days=max_days)
+    if latest is None or latest > today:
+        return today, today
+    return max(latest, floor), today
+
+
+def select_unarchived(bases: list, archived_pks: set[str]) -> list:
+    """只留尚未成功歸檔的案件，避免每次探測都重抓詳情頁。"""
+    return [b for b in bases if b.pk not in archived_pks]
+
+
 def resolve_deadline_range(args: argparse.Namespace) -> tuple[date, date]:
     start = parse_slash_date(args.deadline_from)
     end = (
@@ -131,8 +155,10 @@ def _emit_digest(
     write_digest(text, path)
     logger.info("已寫入 Telegram digest → %s（%s 字）", path, len(text))
 
-# 遭 WAF 封鎖時的結束碼（workflow 據此拉長重跑等待）
+# 遭 WAF 封鎖時的結束碼（workflow 據此不再立刻重跑，等下一個排程時段）
 WAF_EXIT_CODE = 3
+# --catch-up 最多回推天數
+CATCH_UP_MAX_DAYS = 14
 
 
 async def run_pcc_archive(args: argparse.Namespace) -> int:
@@ -140,8 +166,24 @@ async def run_pcc_archive(args: argparse.Namespace) -> int:
     if use_deadline and (args.date or args.start or args.end or args.days is not None):
         logger.error("請勿同時指定公告日參數與 --deadline-from")
         return 2
+    if args.catch_up and (
+        use_deadline or args.date or args.start or args.end or args.days is not None
+    ):
+        logger.error("--catch-up 不可與日期參數同時使用")
+        return 2
+    if not settings.NOTION_TOKEN or not settings.PCC_NOTION_DATABASE_ID:
+        logger.error("請先設定 NOTION_TOKEN / PCC_NOTION_DATABASE_ID")
+        return 2
 
-    if use_deadline:
+    if args.catch_up:
+        async with PccNotionArchiveService() as notion:
+            latest = await notion.latest_announce_date()
+        start, end = resolve_catch_up_range(
+            latest, date.today(), max_days=CATCH_UP_MAX_DAYS
+        )
+        mode_label = "補洞（公告日）"
+        logger.info("Notion 最新公告日：%s", latest)
+    elif use_deadline:
         start, end = resolve_deadline_range(args)
         mode_label = "截止投標"
     else:
@@ -156,10 +198,6 @@ async def run_pcc_archive(args: argparse.Namespace) -> int:
     digest_path = Path(args.digest_file)
     started = datetime.now()
     logger.info("開始 PCC 歸檔（%s %s ~ %s）", mode_label, start, end)
-
-    if not settings.NOTION_TOKEN or not settings.PCC_NOTION_DATABASE_ID:
-        logger.error("請先設定 NOTION_TOKEN / PCC_NOTION_DATABASE_ID")
-        return 2
 
     records = []
     pages: list = []
@@ -177,6 +215,11 @@ async def run_pcc_archive(args: argparse.Namespace) -> int:
                 digest_path,
             )
             return WAF_EXIT_CODE
+        if args.catch_up and bases:
+            archived = await notion.archived_pks_since(start)
+            total = len(bases)
+            bases = select_unarchived(bases, archived)
+            logger.info("補洞：搜尋到 %s 筆，已歸檔 %s 筆，待補 %s 筆", total, total - len(bases), len(bases))
         if args.limit and args.limit > 0:
             bases = bases[: args.limit]
         logger.info("待擷取案件數：%s", len(bases))
@@ -190,6 +233,8 @@ async def run_pcc_archive(args: argparse.Namespace) -> int:
                     logger.exception("調整 PCC Notion view 失敗（不中斷歸檔）")
             records = await pcc.fetch_cases(bases)
             pages = await notion.upsert_many(records)
+        elif args.catch_up:
+            logger.info("區間內沒有待補案件（皆已歸檔）")
         else:
             logger.warning("區間內無財物變賣案件")
 
