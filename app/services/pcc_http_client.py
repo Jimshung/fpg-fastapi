@@ -187,10 +187,10 @@ class PccHttpClient:
                 raise RuntimeError(
                     f"PCC 代理回應非 JSON（HTTP {resp.status}）：{exc}"
                 ) from exc
+        if data.get("error"):  # 代理本身拒絕（金鑰錯誤、網址不在白名單）
+            raise RuntimeError(f"PCC 代理拒絕請求：{data['error']}")
         status = int(data.get("status", 0))
         body = data.get("body", "")
-        if status in (400, 403) and not body.lstrip().startswith("<"):
-            raise RuntimeError(f"PCC 代理拒絕請求（{status}）：{body[:100]}")
         self._raise_if_waf_blocked(status, {}, body)
         return status, body
 
