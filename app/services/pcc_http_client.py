@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
 import re
 from datetime import date
 from typing import Optional
+from urllib.parse import urlencode
 
 import aiohttp
 
@@ -86,7 +88,16 @@ class PccHttpClient:
         *,
         request_pause: float = REQUEST_PAUSE,
         csrf_retry_delays: tuple[float, ...] = CSRF_RETRY_DELAYS,
+        proxy_url: str | None = None,
+        proxy_key: str | None = None,
     ) -> None:
+        # GAS 轉發代理（PCC 封鎖 GitHub IP 時使用）；未設定則直連
+        self.proxy_url = (
+            proxy_url if proxy_url is not None else os.getenv("PCC_PROXY_URL", "")
+        )
+        self.proxy_key = (
+            proxy_key if proxy_key is not None else os.getenv("PCC_PROXY_KEY", "")
+        )
         self.request_pause = request_pause
         self.csrf_retry_delays = csrf_retry_delays
         self._session: Optional[aiohttp.ClientSession] = None
@@ -121,6 +132,8 @@ class PccHttpClient:
 
     async def _refresh_csrf(self) -> str:
         """取得 _csrf；失敗時記錄回應摘要並退避重試（GitHub IP 偶遭擋／限流）。"""
+        if self.proxy_url:
+            return ""  # 代理模式不使用 session／_csrf（GET 列表免 token）
         delays = self.csrf_retry_delays
         attempts = len(delays) + 1
         last_error = "PCC 找不到 _csrf"
@@ -153,12 +166,33 @@ class PccHttpClient:
             if self.request_pause
             else 0
         )
+        if self.proxy_url:
+            full = f"{url}?{urlencode(params)}" if params else url
+            return await self._relay_get(full)
         async with self.session.get(
             url, params=params, headers={"Referer": INDEX}
         ) as resp:
             html = await resp.text(errors="replace")
             self._raise_if_waf_blocked(resp.status, resp.headers, html)
             return resp.status, html
+
+    async def _relay_get(self, url: str) -> tuple[int, str]:
+        """經 GAS 代理抓 PCC 頁面，回傳 (PCC 狀態碼, 內文)。"""
+        async with self.session.get(
+            self.proxy_url, params={"key": self.proxy_key, "url": url}
+        ) as resp:
+            try:
+                data = await resp.json(content_type=None)
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(
+                    f"PCC 代理回應非 JSON（HTTP {resp.status}）：{exc}"
+                ) from exc
+        status = int(data.get("status", 0))
+        body = data.get("body", "")
+        if status in (400, 403) and not body.lstrip().startswith("<"):
+            raise RuntimeError(f"PCC 代理拒絕請求（{status}）：{body[:100]}")
+        self._raise_if_waf_blocked(status, {}, body)
+        return status, body
 
     def _raise_if_waf_blocked(self, status: int, headers, html: str) -> None:
         if is_waf_blocked(html):
@@ -178,6 +212,20 @@ class PccHttpClient:
         rows_per_page: int = 100,
     ) -> list[PccAssetRecord]:
         await self._refresh_csrf()
+        if self.proxy_url:
+            query = {
+                "searchTenderCaseNo": "",
+                "searchAssetsName": "",
+                "searchOrgId": "",
+                "searchOrgName": "",
+                "searchBeginNoticeDate": notice_begin,
+                "searchEndNoticeDate": notice_end,
+                "searchBeginTenderDeadline": dead_begin,
+                "searchEndTenderDeadline": dead_end,
+                "pageModel.rowsPerPage": str(rows_per_page),
+            }
+            _, html = await self._relay_get(f"{SEARCH}?{urlencode(query)}")
+            return await self._collect_pages(html, label)
         form = {
             "_csrf": self._csrf,
             "searchTenderCaseNo": "",
@@ -202,6 +250,9 @@ class PccHttpClient:
             html = await resp.text(errors="replace")
             self._raise_if_waf_blocked(resp.status, resp.headers, html)
 
+        return await self._collect_pages(html, label)
+
+    async def _collect_pages(self, html: str, label: str) -> list[PccAssetRecord]:
         total = parse_result_total(html)
         records = parse_search_summaries(html)
         seen = {r.pk for r in records}
@@ -273,7 +324,9 @@ class PccHttpClient:
         """回傳 (html, detail_kind, source_url)。"""
         preferred = base.detail_kind if base.detail_kind in DETAIL_BY_KIND else "old"
         order = [preferred] + [k for k in DETAIL_BY_KIND if k != preferred]
-        params = {"_csrf": self._csrf, "pk": base.pk}
+        params = {"pk": base.pk}
+        if self._csrf:
+            params = {"_csrf": self._csrf, **params}
 
         last_html = ""
         last_kind = preferred

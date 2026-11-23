@@ -159,6 +159,8 @@ jobs:
     env:
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
       PCC_NOTION_DATABASE_ID: ${{ secrets.PCC_NOTION_DATABASE_ID }}
+      PCC_PROXY_URL: ${{ secrets.PCC_PROXY_URL }}
+      PCC_PROXY_KEY: ${{ secrets.PCC_PROXY_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       ENABLE_TELEGRAM_NOTIFY: "true"
