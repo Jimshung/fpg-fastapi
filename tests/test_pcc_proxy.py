@@ -32,25 +32,38 @@ def test_proxy_skips_csrf_and_searches_via_get(monkeypatch):
     assert "_csrf" not in seen[0]
 
 
-def test_relay_waf_body_raises(monkeypatch):
-    c = make()
-
+def fake_session(payload):
     class Resp:
         status = 200
 
-        async def json(self, content_type=None):
-            return {"status": 500, "body": "Web Page Blocked! x"}
+        async def json(self, **_):
+            return payload
 
         async def __aenter__(self):
             return self
 
-        async def __aexit__(self, *a):
+        async def __aexit__(self, *_):
             return None
 
     class Sess:
-        def get(self, *a, **k):
+        def get(self, *_, **__):
             return Resp()
 
-    c._session = Sess()
+    return Sess()
+
+
+URL = "https://web.pcc.gov.tw/opas/aspam/public/readAspam"
+
+
+def test_relay_waf_body_raises():
+    c = make()
+    c._session = fake_session({"status": 500, "body": "Web Page Blocked! x"})
     with pytest.raises(PccWafBlockedError):
-        run(c._relay_get("https://web.pcc.gov.tw/opas/aspam/public/readAspam"))
+        run(c._relay_get(URL))
+
+
+def test_relay_proxy_error_raises():
+    c = make()
+    c._session = fake_session({"status": 403, "error": "forbidden"})
+    with pytest.raises(RuntimeError, match="forbidden"):
+        run(c._relay_get(URL))
