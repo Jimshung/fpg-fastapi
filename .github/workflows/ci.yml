@@ -31,4 +31,9 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run tests
+        # Settings 匯入時要求這些欄位；測試不會真的連線，用假值即可
+        env:
+          FPG_USERNAME: ci-user
+          FPG_PASSWORD: ci-password
+          LOGIN_URL: https://example.invalid/login
         run: python -m pytest -q
