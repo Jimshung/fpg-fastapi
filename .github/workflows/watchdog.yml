@@ -1,0 +1,39 @@
+name: 排程看門狗
+
+# 外部排程（cron-job.org）與 GitHub schedule 都沒觸發時，automation 不會有任何 run，
+# 也就不會有 Telegram 通知。這裡每個工作日固定檢查一次：當天沒有成功的歸檔 run 就推 Telegram。
+on:
+  schedule:
+    # 台北 11:47（UTC 03:47），避開整點
+    - cron: "47 3 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: 檢查今天是否有成功的歸檔 run
+        run: |
+          # 台北今天 00:00 = 前一天 16:00 UTC
+          SINCE=$(date -u -d "$(TZ=Asia/Taipei date +%F) 00:00 +0800" +%Y-%m-%dT%H:%M:%SZ)
+          COUNT=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=automation.yml \
+            --status success --created ">=${SINCE}" --json databaseId -q 'length')
+          echo "自 ${SINCE} 起成功的歸檔 run：${COUNT}"
+          if [ "$COUNT" -gt 0 ]; then
+            exit 0
+          fi
+          MSG="⚠️ 今天（$(TZ=Asia/Taipei date +%F)）到現在沒有任何成功的 FPG/PCC 歸檔 run，排程可能沒觸發。
+          ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/workflows/automation.yml"
+          curl -sS --fail --max-time 30 \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${MSG}" -o /dev/null
+          echo "已發送 Telegram 警示"
