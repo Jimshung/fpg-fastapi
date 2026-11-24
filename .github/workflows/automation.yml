@@ -34,6 +34,10 @@ jobs:
       (github.event_name == 'schedule' && github.event.schedule != '17 8 * * 1-5') ||
       (github.event_name == 'workflow_dispatch' && inputs.job != 'pcc')
     runs-on: ubuntu-latest
+    # 同一時間只跑一個 FPG 歸檔（排程與外部觸發重疊時排隊，不取消進行中的）
+    concurrency:
+      group: archive-fpg
+      cancel-in-progress: false
     env:
       LOGIN_URL: ${{ secrets.LOGIN_URL }}
       FPG_USERNAME: ${{ secrets.FPG_USERNAME }}
@@ -156,6 +160,10 @@ jobs:
          github.event.schedule == '17 8 * * 1-5')) ||
       (github.event_name == 'workflow_dispatch' && inputs.job != 'fpg')
     runs-on: ubuntu-latest
+    # 同一時間只跑一個 PCC 歸檔；排隊中的被新的取代無妨（--catch-up 會補齊）
+    concurrency:
+      group: archive-pcc
+      cancel-in-progress: false
     env:
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
       PCC_NOTION_DATABASE_ID: ${{ secrets.PCC_NOTION_DATABASE_ID }}
