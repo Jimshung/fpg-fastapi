@@ -16,6 +16,8 @@ BID_PAGE_PATH = "/j202/prc/prc_bid_gen_srh.jsp"
 BID_POST_PATH = "/j202/servlet/com.fpg.j202.Cj202c13"
 CMP_BID_PAGE_PATH = "/j202/cmp/prc_bid_gen_srh.jsp"
 CMP_BID_POST_PATH = "/j202/servlet/com.fpg.j202.Cj202c14"
+HISTORY_PAGE_PATH = "/j202/his/his_bid_gen_srh.jsp"
+HISTORY_POST_PATH = "/j202/servlet/com.fpg.j202.Cj202c16"
 
 
 @lru_cache

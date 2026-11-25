@@ -10,6 +10,8 @@ from PIL import Image
 
 ATTACHMENT_HEADING = "標售附件"
 ATTACHMENT_MARKER_PREFIX = "附件內容｜"
+# 投標紀錄區段（由 notion_bid_record 管理）；附件清除時不可越界刪到它
+BID_RECORD_HEADING = "投標紀錄（報價單截圖）"
 IMAGE_SUFFIXES = {".tif", ".tiff", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 TIF_SUFFIXES = {".tif", ".tiff"}
 
@@ -149,7 +151,7 @@ def build_media_block(member: ZipMember, upload_id: str) -> dict:
 
 
 def managed_attachment_block_ids(children: list[dict]) -> list[str]:
-    """只清除「標售附件」區段：從標題／標記起算到頁尾，避免誤刪其他內容。"""
+    """只清除「標售附件」區段：從標題／標記起算到頁尾（遇到投標紀錄區段即止）。"""
     start = None
     for index, block in enumerate(children):
         text = block_plain_text(block)
@@ -158,4 +160,10 @@ def managed_attachment_block_ids(children: list[dict]) -> list[str]:
             break
     if start is None:
         return []
-    return [b["id"] for b in children[start:] if b.get("id")]
+    ids: list[str] = []
+    for block in children[start:]:
+        if block_plain_text(block) == BID_RECORD_HEADING:
+            break
+        if block.get("id"):
+            ids.append(block["id"])
+    return ids

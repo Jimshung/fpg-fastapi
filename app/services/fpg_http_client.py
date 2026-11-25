@@ -15,6 +15,7 @@ import aiohttp
 from app.core.config import settings
 from app.models.case_record import CaseRecord
 from app.services.captcha_service import CaptchaService
+from app.services.fpg_history_parser import BidHistoryRow, parse_bid_history
 from app.services.fpg_parser import (
     fill_missing_announce_dates,
     merge_records,
@@ -36,6 +37,8 @@ from app.services.fpg_urls import (
     CAPTCHA_PATH,
     CMP_BID_PAGE_PATH,
     CMP_BID_POST_PATH,
+    HISTORY_PAGE_PATH,
+    HISTORY_POST_PATH,
     LOGIN_SERVLET_PATH,
     fpg_base_url,
     fpg_url,
@@ -223,6 +226,53 @@ class FpgHttpClient:
                 filled,
             )
         return records
+
+    async def search_bid_history(
+        self,
+        start_date: str,
+        end_date: str,
+    ) -> list[BidHistoryRow]:
+        """歷史資料：依報價日期（YYYY/MM/DD）查「已報價」案件。"""
+        page_url = fpg_url(HISTORY_PAGE_PATH)
+        await self._get(page_url)
+        html = await self._post_form(
+            fpg_url(HISTORY_POST_PATH),
+            {
+                "FROMJSP": "FJ202HI01",
+                "BTN": "goList",
+                "querytype": "2",
+                "tndsalno": "",
+                "podat1": start_date,
+                "podat2": end_date,
+                "iqdat1": "",
+                "iqdat2": "",
+                "radiostatus": "1",
+            },
+            referer=page_url,
+        )
+        rows = [r for r in parse_bid_history(html) if r.status_text == "已報價"]
+        logger.info("歷史資料 %s~%s：已報價 %s 筆", start_date, end_date, len(rows))
+        return rows
+
+    async def fetch_bid_detail_html(self, row: BidHistoryRow) -> str:
+        """歷史資料「詳細」：回傳報價單頁 HTML（需先 search_bid_history）。"""
+        post_url = fpg_url(HISTORY_POST_PATH)
+        return await self._post_form(
+            post_url,
+            {
+                "FROMJSP": "FJ202HI02",
+                "BTN": "goDetail",
+                "blocid": row.blocid,
+                "tndsalno": row.tndsalno,
+                "inqcnt": row.inqcnt,
+                "status": row.status_flag,
+                "inqdeldat": row.inqdeldat,
+                "inqpur": "",
+                "inqexpire": row.inqexpire,
+                "quo_from_page": "prc_bid_gen_lst",
+            },
+            referer=post_url,
+        )
 
     async def claim_unselected_cases(
         self,

@@ -1,0 +1,3 @@
+# FPG 投標紀錄截圖專用（只有 FPG job 與 CI 需要；PCC 不用）
+# 瀏覽器：Actions 用機器內建 Chrome，不下載 Chromium；本機沒有 Chrome 時請先 playwright install chromium
+playwright==1.65.2
