@@ -232,7 +232,11 @@ class FpgHttpClient:
         start_date: str,
         end_date: str,
     ) -> list[BidHistoryRow]:
-        """歷史資料：依報價日期（YYYY/MM/DD）查「已報價」案件。"""
+        """歷史資料：依報價截止日（YYYY/MM/DD）查「已報價」案件。
+
+        實測「報價日期」篩選會漏案（規則不明，同截止日的案件有的查得到有的查不到），
+        「報價截止日」則穩定：回傳案件的截止日必落在區間內。
+        """
         page_url = fpg_url(HISTORY_PAGE_PATH)
         await self._get(page_url)
         html = await self._post_form(
@@ -240,18 +244,18 @@ class FpgHttpClient:
             {
                 "FROMJSP": "FJ202HI01",
                 "BTN": "goList",
-                "querytype": "2",
+                "querytype": "3",
                 "tndsalno": "",
-                "podat1": start_date,
-                "podat2": end_date,
-                "iqdat1": "",
-                "iqdat2": "",
+                "podat1": "",
+                "podat2": "",
+                "iqdat1": start_date,
+                "iqdat2": end_date,
                 "radiostatus": "1",
             },
             referer=page_url,
         )
         rows = [r for r in parse_bid_history(html) if r.status_text == "已報價"]
-        logger.info("歷史資料 %s~%s：已報價 %s 筆", start_date, end_date, len(rows))
+        logger.info("歷史資料（截止日）%s~%s：已報價 %s 筆", start_date, end_date, len(rows))
         return rows
 
     async def fetch_bid_detail_html(self, row: BidHistoryRow) -> str:
