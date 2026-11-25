@@ -27,11 +27,11 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="FPG 投標紀錄截圖 → Notion")
     parser.add_argument(
         "--from", dest="start", type=date.fromisoformat,
-        default=today - timedelta(days=7), help="報價日期起（YYYY-MM-DD，預設 7 天前）",
+        default=today - timedelta(days=7), help="報價截止日起（YYYY-MM-DD，預設 7 天前）",
     )
     parser.add_argument(
         "--to", dest="end", type=date.fromisoformat,
-        default=today, help="報價日期迄（YYYY-MM-DD，預設今天）",
+        default=today, help="報價截止日迄（YYYY-MM-DD，預設今天）",
     )
     parser.add_argument("--dry-run", action="store_true", help="只列出會處理的案件，不截圖不寫入")
     parser.add_argument(

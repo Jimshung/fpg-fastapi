@@ -172,3 +172,24 @@ def test_record_one_gives_up_after_three_attempts(tmp_path, monkeypatch):
     ok, calls, notion = _run_record_one(5, tmp_path, monkeypatch)
     assert not ok and calls == 3
     assert notion.calls == []  # 失敗時完全不寫入 Notion
+
+
+def test_search_bid_history_uses_deadline_filter():
+    from app.services.fpg_http_client import FpgHttpClient
+
+    sent = {}
+
+    class Client(FpgHttpClient):
+        async def _get(self, url, **kwargs):
+            return ""
+
+        async def _post_form(self, url, data, *, referer):
+            sent.update(data)
+            return HTML
+
+    rows = asyncio.run(Client().search_bid_history("2026/11/18", "2026/11/25"))
+    assert sent["querytype"] == "3"
+    assert (sent["iqdat1"], sent["iqdat2"]) == ("2026/11/18", "2026/11/25")
+    assert sent["podat1"] == "" and sent["podat2"] == ""
+    assert sent["radiostatus"] == "1"
+    assert [r.tndsalno for r in rows] == ["AA-UT0001"]  # 已檢視不算
