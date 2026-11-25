@@ -123,3 +123,52 @@ def test_sync_replaces_old_section_and_updates_property(tmp_path):
     assert notion.calls[-1][0] == "PATCH" and notion.calls[-1][1] == "/pages/p1"
     appended = [c for c in notion.calls if c[1] == "/blocks/p1/children"][0][2]["children"]
     assert appended == build_bid_blocks("2026/11/24 19:56:07", "up1")
+
+
+class _Row:
+    tndsalno = "AA-UT0001"
+    inqcnt = "01"
+    quote_time = "2026/11/24 19:56:07"
+
+
+class _FlakyFpg:
+    def __init__(self, failures):
+        self.failures = failures
+        self.calls = 0
+
+    async def fetch_bid_detail_html(self, _row):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise ConnectionError("Server disconnected")
+        return "<html></html>"
+
+
+class _Shooter:
+    async def capture(self, _html, out_path):
+        out_path.write_bytes(b"jpg")
+        return out_path
+
+
+def _run_record_one(failures, tmp_path, monkeypatch):
+    from app.scripts import run_bid_history as mod
+
+    monkeypatch.setattr(mod, "CASE_RETRY_PAUSE", 0)
+    notion = FakeNotion([])
+    fpg = _FlakyFpg(failures)
+    ok = asyncio.run(
+        mod._record_one(fpg, notion, _Shooter(), tmp_path, _Row(), _page(""))
+    )
+    return ok, fpg.calls, notion
+
+
+def test_record_one_retries_transient_failure(tmp_path, monkeypatch):
+    ok, calls, notion = _run_record_one(2, tmp_path, monkeypatch)
+    assert ok and calls == 3
+    assert notion.calls[-1][1] == "/pages/p1"  # 欄位最後更新
+    assert list(tmp_path.iterdir()) == []  # 暫存截圖已刪
+
+
+def test_record_one_gives_up_after_three_attempts(tmp_path, monkeypatch):
+    ok, calls, notion = _run_record_one(5, tmp_path, monkeypatch)
+    assert not ok and calls == 3
+    assert notion.calls == []  # 失敗時完全不寫入 Notion

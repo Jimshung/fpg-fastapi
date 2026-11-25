@@ -147,6 +147,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 8
         run: |
+          set -o pipefail  # 否則 tee 會蓋掉 python 的失敗碼，失敗通知不會發
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends fonts-wqy-microhei
           pip install -r requirements-bid.txt
