@@ -42,6 +42,31 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+CASE_ATTEMPTS = 3
+CASE_RETRY_PAUSE = 5.0
+
+
+async def _record_one(fpg, notion, shooter, tmp, row, page) -> bool:
+    """單案最多試 CASE_ATTEMPTS 次（FPG 偶爾會中斷連線）；成功才刪暫存截圖。"""
+    for attempt in range(1, CASE_ATTEMPTS + 1):
+        try:
+            html = await fpg.fetch_bid_detail_html(row)
+            shot = await shooter.capture(
+                html, Path(tmp) / f"{row.tndsalno}-{row.inqcnt}.jpg"
+            )
+            await sync_bid_record(notion, page, row.quote_time, shot)
+            shot.unlink(missing_ok=True)
+            return True
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.exception(
+                "投標紀錄失敗 %s/%s（第 %s/%s 次）",
+                row.tndsalno, row.inqcnt, attempt, CASE_ATTEMPTS,
+            )
+            if attempt < CASE_ATTEMPTS:
+                await asyncio.sleep(CASE_RETRY_PAUSE)
+    return False
+
+
 async def run(args: argparse.Namespace) -> int:
     start = args.start.strftime("%Y/%m/%d")
     end = args.end.strftime("%Y/%m/%d")
@@ -75,17 +100,10 @@ async def run(args: argparse.Namespace) -> int:
         with tempfile.TemporaryDirectory(prefix="fpg_bid_") as tmp:
             async with BidScreenshotter(base_url=fpg_base_url(), cookies=cookies) as shooter:
                 for row, page in pending:
-                    try:
-                        html = await fpg.fetch_bid_detail_html(row)
-                        shot = await shooter.capture(
-                            html, Path(tmp) / f"{row.tndsalno}-{row.inqcnt}.jpg"
-                        )
-                        await sync_bid_record(notion, page, row.quote_time, shot)
-                        shot.unlink(missing_ok=True)  # 上傳成功才刪；失敗留到暫存夾一併清除
+                    if await _record_one(fpg, notion, shooter, tmp, row, page):
                         logger.info("已記錄 %s/%s（%s）", row.tndsalno, row.inqcnt, row.quote_time)
-                    except Exception:  # pylint: disable=broad-exception-caught
+                    else:
                         failures += 1
-                        logger.exception("投標紀錄失敗 %s/%s", row.tndsalno, row.inqcnt)
     return 1 if failures else 0
 
 
