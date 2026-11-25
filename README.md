@@ -59,6 +59,12 @@ python -m app.scripts.run_archive --date 2026/07/22
 python -m app.scripts.run_archive --limit 3
 python -m app.scripts.run_archive --skip-claim   # 略過轉報價（除錯用）
 
+# 台塑投標紀錄：歷史資料已報價案件 → 報價單截圖 + 報價時間存進 Notion 案件頁
+# （需 pip install -r requirements-bid.txt；Actions 用內建 Chrome，本機無 Chrome 請先 playwright install chromium）
+python -m app.scripts.run_bid_history --dry-run                       # 只列出會處理的案件
+python -m app.scripts.run_bid_history --from 2026-11-23 --to 2026-11-25
+python -m app.scripts.run_bid_history --force                        # 報價時間相同也重做
+
 # 政府財物變賣：今天公告（對齊台塑節奏）
 python -m app.scripts.run_pcc_archive
 python -m app.scripts.run_pcc_archive --date 2026/07/22

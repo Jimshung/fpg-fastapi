@@ -139,6 +139,31 @@ jobs:
           disable_web_page_preview: true
           message_file: telegram_digest.txt
 
+      # 投標紀錄：歷史資料已報價案件 → 報價單截圖存進 Notion。
+      # 用機器內建 Chrome（免下載）；步驟自有時限，失敗只推 Telegram，不影響歸檔結果。
+      - name: 投標紀錄截圖 (FPG 歷史資料)
+        id: bid
+        if: steps.archive.outputs.status == 'success'
+        continue-on-error: true
+        timeout-minutes: 8
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends fonts-wqy-microhei
+          pip install -r requirements-bid.txt
+          python -m app.scripts.run_bid_history --login-retries 3 2>&1 | tee bid_history.log
+
+      - name: 投標紀錄失敗通知
+        if: steps.bid.outcome == 'failure'
+        continue-on-error: true
+        uses: appleboy/telegram-action@214f06cfa3d3a588c1472116889437e7c6fd29b1 # v1.1.1
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          disable_web_page_preview: true
+          message: |
+            ⚠️ FPG 投標紀錄截圖失敗（歸檔本身已完成，不受影響）
+            Actions: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v5
@@ -146,6 +171,7 @@ jobs:
           name: archive-logs
           path: |
             archive.log
+            bid_history.log
             telegram_digest.txt
           retention-days: 5
 

@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          pip install -r requirements.txt -r requirements-dev.txt -r requirements-bid.txt
 
       - name: Run tests
         # Settings 匯入時要求這些欄位；測試不會真的連線，用假值即可

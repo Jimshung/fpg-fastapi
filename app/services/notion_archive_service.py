@@ -288,6 +288,7 @@ class NotionArchiveService:
             "有附件": {"checkbox": {}},
             "附件": {"files": {}},
             "SHA-256": {"rich_text": {}},
+            "報價時間": {"rich_text": {}},
             "狀態": {
                 "select": {
                     "options": [
