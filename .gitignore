@@ -52,16 +52,9 @@ Thumbs.db
 .actrc
 .secrets
 
-# REST Client 生成的檔案
-api_requests_*.http
-
 # 其他不需要的檔案
 thunder-collection/
 curl_commands_*.txt
-
-# Test files
-tests/http/*.rest
-tests/http/*.private.env.json
 
 
 # 專案特定檔案

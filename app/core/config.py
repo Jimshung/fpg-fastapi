@@ -1,7 +1,6 @@
 from functools import lru_cache
 from typing import Optional
 
-from loguru import logger
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,11 +11,6 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
-
-    APP_NAME: str = "FPG FastAPI"
-
-    # 環境設定
-    ENVIRONMENT: str = "development"  # 'development', 'production', 'test'
 
     # FPG 登入
     FPG_USERNAME: str
@@ -48,4 +42,3 @@ def get_settings():
 
 
 settings = get_settings()
-logger.info("Settings loaded (HTTP archive mode)")

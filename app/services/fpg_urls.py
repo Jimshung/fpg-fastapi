@@ -7,7 +7,6 @@ from urllib.parse import urlsplit, urljoin
 from app.core.config import settings
 
 # 相對路徑（不含網域）
-LOGIN_PATH = "/j202/mgt/mgt_logon.jsp"
 LOGIN_SERVLET_PATH = "/j202/servlet/com.fpg.j202.Cj202000"
 CAPTCHA_PATH = "/j202/Captcha.do"
 BULLETIN_PAGE_PATH = "/j202/prc/prc_anno_comp_srh.jsp"

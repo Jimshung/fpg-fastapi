@@ -449,8 +449,6 @@ class FpgHttpClient:
             "casestyle": "case3",
             "selectBlocid": "75708007",
         }
-        if btn == "goPage":
-            form["FROMJSP"] = "FJ202C1PA02"
         return await self._post_form(
             fpg_url(BULLETIN_POST_PATH),
             form,

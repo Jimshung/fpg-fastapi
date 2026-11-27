@@ -105,7 +105,6 @@ app/
     pcc_asset_record.py
 tests/
   test_*.py                        # 單元測試（不需網路）
-  http/                            # REST Client 探測用
 ```
 
 ## GitHub Actions
