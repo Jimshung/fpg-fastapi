@@ -52,7 +52,7 @@ def sleeps(monkeypatch):
 
 
 def _client(items):
-    c = PccHttpClient()
+    c = PccHttpClient(proxy_url="")
     c._session = _Session(items)
     return c
 

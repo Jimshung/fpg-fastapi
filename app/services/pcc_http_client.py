@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import random
 import re
 from datetime import date
@@ -12,6 +11,7 @@ from urllib.parse import urlencode
 
 import aiohttp
 
+from app.core.config import settings
 from app.models.pcc_asset_record import PccAssetRecord
 from app.services.pcc_parser import (
     BASE,
@@ -93,10 +93,10 @@ class PccHttpClient:
     ) -> None:
         # GAS 轉發代理（PCC 封鎖 GitHub IP 時使用）；未設定則直連
         self.proxy_url = (
-            proxy_url if proxy_url is not None else os.getenv("PCC_PROXY_URL", "")
+            proxy_url if proxy_url is not None else settings.PCC_PROXY_URL
         )
         self.proxy_key = (
-            proxy_key if proxy_key is not None else os.getenv("PCC_PROXY_KEY", "")
+            proxy_key if proxy_key is not None else settings.PCC_PROXY_KEY
         )
         self.request_pause = request_pause
         self.csrf_retry_delays = csrf_retry_delays
