@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from app.core.config import Settings
 from app.services.pcc_http_client import PccHttpClient, PccWafBlockedError
 
 
@@ -13,6 +14,20 @@ def make(**kw):
     return PccHttpClient(
         request_pause=0, proxy_url="https://script.google.com/x/exec", proxy_key="k", **kw
     )
+
+
+def test_proxy_settings_are_read_from_env_file(monkeypatch, tmp_path):
+    for name in ("PCC_PROXY_URL", "PCC_PROXY_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "PCC_PROXY_URL=https://example.invalid/exec\nPCC_PROXY_KEY=dummy-key\n"
+    )
+    monkeypatch.setattr(
+        "app.services.pcc_http_client.settings", Settings(_env_file=env_file)
+    )
+    c = PccHttpClient()
+    assert (c.proxy_url, c.proxy_key) == ("https://example.invalid/exec", "dummy-key")
 
 
 def test_proxy_skips_csrf_and_searches_via_get(monkeypatch):

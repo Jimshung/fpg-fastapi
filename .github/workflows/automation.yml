@@ -28,7 +28,7 @@ on:
 
 jobs:
   run-archive:
-    name: FPG 標售歸檔
+    name: FPG 標售歸檔  # watchdog.yml 依此名稱檢查，改名要一起改
     # 排程：16:17 略過；手動／外部觸發：job 不是 pcc 就跑
     if: >
       (github.event_name == 'schedule' && github.event.schedule != '17 8 * * 1-5') ||
@@ -176,7 +176,7 @@ jobs:
           retention-days: 5
 
   run-pcc-archive:
-    name: PCC 財物變賣歸檔
+    name: PCC 財物變賣歸檔  # watchdog.yml 依此名稱檢查，改名要一起改
     # 排程：08:17、09–12 每小時、16:17 各探測一次；手動／外部觸發：job 不是 fpg 就跑
     # PCC 封鎖是間歇的：每次只探測一次、被擋就結束，放行時用 --catch-up 補齊缺口
     if: >

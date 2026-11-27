@@ -1,7 +1,9 @@
 name: 排程看門狗
 
 # 外部排程（cron-job.org）與 GitHub schedule 都沒觸發時，automation 不會有任何 run，
-# 也就不會有 Telegram 通知。這裡每個工作日固定檢查一次：當天沒有成功的歸檔 run 就推 Telegram。
+# 也就不會有 Telegram 通知。這裡每個工作日檢查一次：台塑與 PCC 兩個 job
+# 當天是否各成功過一次，缺哪個就推 Telegram。
+# 準時觸發靠外部排程器呼叫 workflow_dispatch；下方 schedule 只是備援（常延遲數小時）。
 on:
   schedule:
     # 台北 11:47（UTC 03:47），避開整點
@@ -20,17 +22,35 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
-      - name: 檢查今天是否有成功的歸檔 run
+      - name: 檢查今天台塑與 PCC 是否都成功歸檔
         run: |
-          # 台北今天 00:00 = 前一天 16:00 UTC
-          SINCE=$(date -u -d "$(TZ=Asia/Taipei date +%F) 00:00 +0800" +%Y-%m-%dT%H:%M:%SZ)
-          COUNT=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=automation.yml \
-            --status success --created ">=${SINCE}" --json databaseId -q 'length')
-          echo "自 ${SINCE} 起成功的歸檔 run：${COUNT}"
-          if [ "$COUNT" -gt 0 ]; then
+          # 只看台北當天 07:00 之後建立的 run：前一天的備援排程常拖到凌晨才跑，不能算今天。
+          # 往回推 7 小時取日期，看門狗自己延遲到午夜後仍會檢查原本那一天。
+          DAY=$(TZ=Asia/Taipei date -d '7 hours ago' +%F)
+          SINCE=$(date -u -d "${DAY} 07:00 +0800" +%Y-%m-%dT%H:%M:%SZ)
+          UNTIL=$(date -u -d "${DAY} 23:59:59 +0800" +%Y-%m-%dT%H:%M:%SZ)
+          # 不篩 run 的結果：其中一個 job 失敗會讓整個 run 失敗，另一個 job 仍可能成功
+          RUN_IDS=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=automation.yml \
+            --created "${SINCE}..${UNTIL}" --limit 100 --json databaseId -q '.[].databaseId')
+          SUCCEEDED=""
+          for ID in $RUN_IDS; do
+            NAMES=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ID}/jobs" \
+              -q '.jobs[] | select(.conclusion == "success") | .name')
+            SUCCEEDED+="${NAMES}"$'\n'
+          done
+          # 名稱必須與 automation.yml 的 job name 一致
+          MISSING=""
+          for JOB in "FPG 標售歸檔" "PCC 財物變賣歸檔"; do
+            if ! grep -qxF "$JOB" <<< "$SUCCEEDED"; then
+              MISSING+="・${JOB}"$'\n'
+            fi
+          done
+          if [ -z "$MISSING" ]; then
+            echo "${DAY} 台塑與 PCC 都已成功歸檔"
             exit 0
           fi
-          MSG="⚠️ 今天（$(TZ=Asia/Taipei date +%F)）到現在沒有任何成功的 FPG/PCC 歸檔 run，排程可能沒觸發。
+          MSG="⚠️ ${DAY} 到目前為止，以下歸檔還沒有成功紀錄：
+          ${MISSING}可能是排程沒觸發、執行失敗或還在執行中。
           ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/workflows/automation.yml"
           curl -sS --fail --max-time 30 \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
