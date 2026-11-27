@@ -47,7 +47,6 @@ jobs:
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
       NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
       ENABLE_TELEGRAM_NOTIFY: "true"
-      ENVIRONMENT: production
       TZ: Asia/Taipei
       ACTIONS_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     timeout-minutes: 45
@@ -199,7 +198,6 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       ENABLE_TELEGRAM_NOTIFY: "true"
-      ENVIRONMENT: production
       TZ: Asia/Taipei
       # Settings 啟動仍需要 FPG 帳密欄位（PCC job 不登入 FPG）
       FPG_USERNAME: ${{ secrets.FPG_USERNAME }}

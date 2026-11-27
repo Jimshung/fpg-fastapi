@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import html as html_lib
 import re
-from typing import Iterable
 
 from app.models.case_record import CaseRecord, QuoteItem
 
@@ -158,18 +157,9 @@ def parse_bulletin_cases(html: str) -> list[CaseRecord]:
 
 
 def parse_bulletin_total_pages(html: str) -> int:
-    # goNPage(...,'21','gtpage1') 或 /2頁
+    # 例：「1/2頁」
     m = re.search(r"/(\d+)頁", html)
-    if m:
-        return max(1, int(m.group(1)))
-    m = re.search(r"goNPage\([^)]*'(\d+)'\s*,\s*'gtpage", html)
-    if m:
-        # itemnum is total items, not pages — fallback
-        pass
-    markers = re.findall(r"(\d+)/(\d+)頁", html)
-    if markers:
-        return max(int(b) for _, b in markers)
-    return 1
+    return max(1, int(m.group(1))) if m else 1
 
 
 def parse_bulletin_itemnum(html: str) -> str:
@@ -353,14 +343,3 @@ def merge_records(base: CaseRecord, extra: CaseRecord) -> CaseRecord:
     if extra.items:
         base.items = extra.items
     return base
-
-
-def chunked(items: Iterable, size: int):
-    buf = []
-    for item in items:
-        buf.append(item)
-        if len(buf) >= size:
-            yield buf
-            buf = []
-    if buf:
-        yield buf

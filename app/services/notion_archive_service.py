@@ -503,11 +503,9 @@ class NotionArchiveService:
                 logger.info(
                     "ZIP 未變更，略過屬性上傳 %s/%s", record.tndsalno, record.inqcnt
                 )
-                has_attachment = True
                 zip_changed = False
             else:
                 file_upload_id = await self.upload_zip(zip_path)
-                zip_changed = True
 
         status_name = "error" if record.status == "error" else (
             "updated" if existing else "new"
